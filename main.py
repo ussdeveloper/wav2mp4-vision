@@ -628,42 +628,44 @@ class VideoGenerator:
             if (self.current_time - flash[0]) < self.flash_duration
         ]
         
-        # Rysuj wszystkie aktywne flashe jako ripple
+        # Rysuj wszystkie aktywne flashe jako ripple wysokiej rozdzielczości
         draw = ImageDraw.Draw(img)
         for birth_time, intensity, x, y in self.active_flashes:
             age = self.current_time - birth_time
             progress = age / self.flash_duration  # 0 do 1
             
-            # Flash rozchodzi się jak ripple - wiele koncentrycznych okręgów
+            # Flash rozchodzi się jak ripple - wiele cienkich koncentrycznych okręgów
             max_distance = max(self.width, self.height) * 1.5
             
-            # Rysuj kilka fal ripple (3-5 fal) z gradientem opacity
-            num_ripples = 5
+            # Wysoka rozdzielczość - więcej cieńszych fal (15-20 fal)
+            num_ripples = 18
             for i in range(num_ripples):
-                # Każda fala zaczyna się z opóźnieniem
-                wave_delay = i * 0.15  # 15% opóźnienia między falami
+                # Każda fala zaczyna się z mniejszym opóźnieniem (bardziej gęste)
+                wave_delay = i * 0.05  # 5% opóźnienia między falami (było 15%)
                 wave_progress = (progress - wave_delay) / (1.0 - wave_delay)
                 
                 if wave_progress > 0 and wave_progress < 1:
                     # Promień dla tej fali
                     wave_radius = wave_progress * max_distance
                     
-                    # Opacity dla tej fali - zanika z czasem i odległością od centrum
-                    # Gradient: intensywne na początku, zanikające z czasem
-                    base_opacity = intensity * (1 - wave_progress)  # Zanika liniowo
+                    # Dynamiczne opacity - nieliniowe zanikanie (płynniejsze)
+                    # Użyj krzywej ease-out dla naturalnego zanikania
+                    fade_curve = 1 - (wave_progress ** 1.5)  # Szybsze zanikanie na końcu
                     
-                    # Każda kolejna fala jest słabsza
-                    wave_factor = 1.0 - (i / num_ripples) * 0.5  # Pierwsza fala: 1.0, ostatnia: 0.5
-                    current_opacity = int(255 * base_opacity * wave_factor)
+                    # Dodatkowy gradient dla odległych fal
+                    distance_fade = 1.0 - (i / num_ripples) * 0.7  # Ostatnie fale: 30% intensywności
                     
-                    if current_opacity > 15 and wave_radius > 5:
-                        # Szerokość pierścienia - cieńsze dla dalszych fal
-                        ring_width = max(3, int(20 - wave_progress * 15))
+                    # Połącz intensity, krzywą zanikania i gradient odległości
+                    current_opacity = int(255 * intensity * fade_curve * distance_fade)
+                    
+                    if current_opacity > 8 and wave_radius > 3:
+                        # Cienkie pierścienie (stała szerokość 2-3px dla subtelności)
+                        ring_width = 2 if wave_progress > 0.3 else 3
                         
-                        # Kolor biały z opacity
+                        # Kolor biały z dynamicznym opacity
                         color_ring = (255, 255, 255, current_opacity)
                         
-                        # Rysuj pierścień (outline)
+                        # Rysuj cienki pierścień (outline)
                         draw.ellipse(
                             [x - wave_radius, y - wave_radius,
                              x + wave_radius, y + wave_radius],
