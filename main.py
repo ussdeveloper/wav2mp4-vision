@@ -479,8 +479,8 @@ class VideoGenerator:
     """Klasa do generowania wideo z wizualizacją"""
     
     def __init__(self, width, height, fps=30, bars=64, waveform_style='waveform', 
-                 left_color=(255, 255, 0), right_color=(0, 255, 0), opacity=0.9,
-                 vocal_color=(255, 50, 50), text=None, text_opacity=0.8,
+                 left_color=(0, 100, 255), right_color=(0, 255, 100), opacity=0.9,
+                 vocal_color=(255, 0, 100), text=None, text_opacity=0.8,
                  watermark=None, watermark_x=10, watermark_y=10, add_flares=True,
                  flare_duration=500, screen_flash_intensity=0.3):
         """
@@ -800,8 +800,9 @@ class VideoGenerator:
         # Parametry
         center_y = self.height / 2
         amplitude_scale = self.height * 0.35  # 35% wysokości dla amplitudy
-        line_width = 2  # Cieńsze linie dla lepszej rozdzielczości
-        vocal_line_width = 4  # Wokal grubszy o 100%
+        line_width = 1  # Ultra cienka linia - neon
+        vocal_line_width = 1  # Wokal też 1px (neon)
+        glow_width = 8  # Szerokość glow (blur)
         
         # Lewy kanał - żółty (na środku)
         points_left = []
@@ -846,43 +847,80 @@ class VideoGenerator:
             age_factor = (idx + 1) / len(self.wave_history)
             trail_opacity = 0.4 * age_factor * 0.5  # Reverb z opacity 0.4
             
-            # Rysuj trailing lewego kanału
+            # Rysuj trailing lewego kanału z glow
             if len(old_left) > 1:
                 for i in range(len(old_left) - 1):
+                    # Glow (blur effect) - rysuj grubszą linię z mniejszą opacity
+                    glow_opacity = int(255 * trail_opacity * 0.3)
+                    color_glow = self.left_color + (glow_opacity,)
+                    draw.line([old_left[i], old_left[i + 1]], 
+                             fill=color_glow, width=glow_width)
+                    # Ostra linia 1px na wierzchu
                     color_with_alpha = self.left_color + (int(255 * trail_opacity),)
                     draw.line([old_left[i], old_left[i + 1]], 
                              fill=color_with_alpha, width=line_width)
             
-            # Rysuj trailing prawego kanału
+            # Rysuj trailing prawego kanału z glow
             if len(old_right) > 1:
                 for i in range(len(old_right) - 1):
+                    # Glow (blur effect)
+                    glow_opacity = int(255 * trail_opacity * 0.3)
+                    color_glow = self.right_color + (glow_opacity,)
+                    draw.line([old_right[i], old_right[i + 1]], 
+                             fill=color_glow, width=glow_width)
+                    # Ostra linia 1px na wierzchu
                     color_with_alpha = self.right_color + (int(255 * trail_opacity),)
                     draw.line([old_right[i], old_right[i + 1]], 
                              fill=color_with_alpha, width=line_width)
             
-            # Rysuj trailing wokalu
+            # Rysuj trailing wokalu z glow
             if len(old_vocal) > 1:
                 for i in range(len(old_vocal) - 1):
+                    # Glow (blur effect)
+                    glow_opacity = int(255 * trail_opacity * 0.3)
+                    color_glow = self.vocal_color + (glow_opacity,)
+                    draw.line([old_vocal[i], old_vocal[i + 1]], 
+                             fill=color_glow, width=glow_width)
+                    # Ostra linia 1px na wierzchu
                     color_with_alpha = self.vocal_color + (int(255 * trail_opacity),)
                     draw.line([old_vocal[i], old_vocal[i + 1]], 
                              fill=color_with_alpha, width=line_width)
         
-        # Rysuj aktualną falę (pełna opacity)
+        # Rysuj aktualną falę lewego kanału (pełna opacity) z glow
         if len(points_left) > 1:
             for i in range(len(points_left) - 1):
+                # Glow (blur effect) - grubsza linia z mniejszą opacity
+                glow_opacity = int(255 * self.opacity * 0.4)
+                color_glow = self.left_color + (glow_opacity,)
+                draw.line([points_left[i], points_left[i + 1]], 
+                         fill=color_glow, width=glow_width)
+                # Ostra linia 1px na wierzchu (neon)
                 color_with_alpha = self.left_color + (int(255 * self.opacity),)
                 draw.line([points_left[i], points_left[i + 1]], 
                          fill=color_with_alpha, width=line_width)
         
+        # Rysuj aktualną falę prawego kanału z glow
         if len(points_right) > 1:
             for i in range(len(points_right) - 1):
+                # Glow (blur effect)
+                glow_opacity = int(255 * self.opacity * 0.4)
+                color_glow = self.right_color + (glow_opacity,)
+                draw.line([points_right[i], points_right[i + 1]], 
+                         fill=color_glow, width=glow_width)
+                # Ostra linia 1px na wierzchu (neon)
                 color_with_alpha = self.right_color + (int(255 * self.opacity),)
                 draw.line([points_right[i], points_right[i + 1]], 
                          fill=color_with_alpha, width=line_width)
         
-        # Rysuj aktualną falę wokalu (na wierzchu, grubsza linia)
+        # Rysuj aktualną falę wokalu (na wierzchu) z glow - czerwony neon
         if len(points_vocal) > 1:
             for i in range(len(points_vocal) - 1):
+                # Glow (blur effect) - mocniejszy dla wokalu
+                glow_opacity = int(255 * self.opacity * 0.5)
+                color_glow = self.vocal_color + (glow_opacity,)
+                draw.line([points_vocal[i], points_vocal[i + 1]], 
+                         fill=color_glow, width=glow_width)
+                # Ostra linia 1px na wierzchu (czerwony neon)
                 color_with_alpha = self.vocal_color + (int(255 * self.opacity),)
                 draw.line([points_vocal[i], points_vocal[i + 1]], 
                          fill=color_with_alpha, width=vocal_line_width)
