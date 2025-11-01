@@ -107,13 +107,19 @@ class BackgroundManager:
         return img
     
     def _load_ken_burns_image(self, path):
-        """Wczytaj obrazek w większym rozmiarze dla efektu Ken Burns (zoom + pan)"""
+        """Wczytaj obrazek w większym rozmiarze dla efektu Ken Burns (zoom + pan)
+        Używamy 2x upscale dla większej rozdzielczości = płynniejszy ruch bez skoków"""
         img = Image.open(path).convert('RGB')
         
-        # Skaluj aby wypełnić ekran + 10% offset dla płynnego przesuwania
+        # KROK 1: Upscale do 200% dla większej rozdzielczości (więcej pikseli = płynniejszy ruch)
+        upscaled_w = img.width * 2
+        upscaled_h = img.height * 2
+        img = img.resize((upscaled_w, upscaled_h), Image.Resampling.LANCZOS)
+        
+        # KROK 2: Skaluj aby wypełnić ekran w 2x + 10% offset dla płynnego przesuwania
         scale = 1.1
-        target_width = int(self.width * scale)
-        target_height = int(self.height * scale)
+        target_width = int(self.width * 2 * scale)  # 2x bo obraz jest upscaled
+        target_height = int(self.height * 2 * scale)
         
         img_ratio = img.width / img.height
         target_ratio = target_width / target_height
@@ -173,7 +179,8 @@ class BackgroundManager:
         return current_img.copy()
     
     def _apply_ken_burns(self, t):
-        """Zastosuj płynny efekt Ken Burns (zoom do wypełnienia +10% offset, potem płynne przesuwanie)"""
+        """Zastosuj płynny efekt Ken Burns (zoom do wypełnienia +10% offset, potem płynne przesuwanie)
+        Obraz jest w 2x rozdzielczości, więc cropujemy w 2x i skalujemy z powrotem"""
         if not hasattr(self, 'ken_burns_img'):
             return self.images[0].copy()
         
@@ -185,18 +192,22 @@ class BackgroundManager:
         # Używamy sinusoidalnej krzywej dla naturalnego przyspieszenia/zwalniania
         smooth_progress = (1 - np.cos(progress * np.pi)) / 2
         
-        # Wymiary obrazka (już przeskalowanego do 110%)
+        # Wymiary obrazka w 2x rozdzielczości (już przeskalowanego do 2x * 110%)
         img_width = self.ken_burns_img.width
         img_height = self.ken_burns_img.height
         
-        # Maksymalny dostępny offset (10% z każdej strony)
-        max_offset_x = img_width - self.width
-        max_offset_y = img_height - self.height
+        # Rozmiary docelowe w 2x (bo obraz jest upscaled)
+        target_w = self.width * 2
+        target_h = self.height * 2
+        
+        # Maksymalny dostępny offset (10% z każdej strony w przestrzeni 2x)
+        max_offset_x = img_width - target_w
+        max_offset_y = img_height - target_h
         
         # ULTRA wolne ale PŁYNNE przesuwanie: użyj smooth_progress dla ciągłej interpolacji
-        # Zwiększam zakres do 15% aby mieć więcej pikseli = płynniejszy ruch
-        # Przy 1920x1080 i 10% offset -> max_offset ≈ 192px -> 15% z tego = ~29px całkowity zakres
-        # To da ~29 różnych pozycji dla płynnej animacji
+        # Zwiększam zakres do 15% ale teraz mamy 2x więcej pikseli!
+        # Przy 1920x1080 * 2 = 3840x2160 i 10% offset -> max_offset ≈ 384px -> 15% z tego = ~58px całkowity zakres
+        # To da ~58 różnych pozycji zamiast ~29 = DUŻO płynniejsza animacja!
         offset_x = int(smooth_progress * max_offset_x * 0.15)
         offset_y = int(smooth_progress * max_offset_y * 0.15)
         
@@ -204,21 +215,25 @@ class BackgroundManager:
         offset_x = min(offset_x, max_offset_x)
         offset_y = min(offset_y, max_offset_y)
         
-        # Wytnij fragment obrazka z płynnym przesunięciem
+        # Wytnij fragment obrazka w 2x rozdzielczości z płynnym przesunięciem
         left = offset_x
         top = offset_y
-        right = left + self.width
-        bottom = top + self.height
+        right = left + target_w
+        bottom = top + target_h
         
         # Zabezpieczenie przed wyjściem poza granice (nie powinno się zdarzyć)
         if right > img_width:
             right = img_width
-            left = right - self.width
+            left = right - target_w
         if bottom > img_height:
             bottom = img_height
-            top = bottom - self.height
+            top = bottom - target_h
         
+        # Crop w 2x rozdzielczości
         cropped = self.ken_burns_img.crop((left, top, right, bottom))
+        
+        # Skaluj z powrotem do docelowej rozdzielczości z wysoką jakością (Lanczos)
+        cropped = cropped.resize((self.width, self.height), Image.Resampling.LANCZOS)
         
         # Dodaj delikatny efekt rozgrzanego powietrza (heat distortion)
         cropped = self._apply_heat_distortion(cropped, t)
