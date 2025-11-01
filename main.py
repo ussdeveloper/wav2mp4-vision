@@ -204,12 +204,13 @@ class BackgroundManager:
         max_offset_x = img_width - target_w
         max_offset_y = img_height - target_h
         
-        # ULTRA wolne ale PŁYNNE przesuwanie: użyj smooth_progress dla ciągłej interpolacji
-        # Zwiększam zakres do 15% ale teraz mamy 2x więcej pikseli!
-        # Przy 1920x1080 * 2 = 3840x2160 i 10% offset -> max_offset ≈ 384px -> 15% z tego = ~58px całkowity zakres
-        # To da ~58 różnych pozycji zamiast ~29 = DUŻO płynniejsza animacja!
-        offset_x = int(smooth_progress * max_offset_x * 0.15)
-        offset_y = int(smooth_progress * max_offset_y * 0.15)
+        # Szybka animacja z płynnym ruchem dzięki 2x upscale
+        # Używamy 70% dostępnego zakresu dla widocznego ruchu, ale upscale 2x daje płynność!
+        # Przy 1920x1080 * 2 = 3840x2160 i 10% offset -> max_offset ≈ 384px -> 70% z tego = ~269px całkowity zakres
+        # To da ~269 różnych pozycji pikseli = ultra płynny ruch bez skoków!
+        # 480 klatek / 269px = ~1.8 klatki na pixel = oko nie widzi skoków, tylko płynny ruch
+        offset_x = int(smooth_progress * max_offset_x * 0.70)
+        offset_y = int(smooth_progress * max_offset_y * 0.70)
         
         # Ogranicz do maksymalnego dostępnego offsetu (zabezpieczenie)
         offset_x = min(offset_x, max_offset_x)
