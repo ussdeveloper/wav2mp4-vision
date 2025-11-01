@@ -100,8 +100,8 @@ class BackgroundManager:
         """Wczytaj obrazek w większym rozmiarze dla efektu Ken Burns (zoom + pan)"""
         img = Image.open(path).convert('RGB')
         
-        # Skaluj do 120% rozmiaru dla efektu zoom
-        scale = 1.2
+        # Skaluj do 110% rozmiaru dla efektu zoom (50% wolniej)
+        scale = 1.1
         target_width = int(self.width * scale)
         target_height = int(self.height * scale)
         
@@ -168,8 +168,8 @@ class BackgroundManager:
         progress = t / self.duration if self.duration > 0 else 0
         progress = np.clip(progress, 0, 1)
         
-        # Oblicz zoom (od 1.2 do 1.0 - powolne przybliżanie)
-        zoom = 1.2 - (progress * 0.2)
+        # Oblicz zoom (od 1.1 do 1.0 - bardzo powolne przybliżanie, 50% wolniej)
+        zoom = 1.1 - (progress * 0.1)
         
         # Oblicz offset (powolny ruch od lewej góry do prawej dół)
         img_width = self.ken_burns_img.width
@@ -179,9 +179,9 @@ class BackgroundManager:
         max_offset_x = img_width - self.width
         max_offset_y = img_height - self.height
         
-        # Powolny ruch po przekątnej
-        offset_x = int(progress * max_offset_x * 0.5)  # Tylko 50% przesunięcia
-        offset_y = int(progress * max_offset_y * 0.5)
+        # Bardzo powolny ruch po przekątnej (25% przesunięcia dla płynności)
+        offset_x = int(progress * max_offset_x * 0.25)  # 50% wolniej
+        offset_y = int(progress * max_offset_y * 0.25)
         
         # Wytnij fragment obrazka
         left = offset_x
@@ -574,8 +574,8 @@ class VideoGenerator:
             # Rysuj equalizera (stary sposób)
             self._draw_bars(draw, bar_heights, smoothed_heights)
         
-        # Zastosuj blur do wizualizacji
-        overlay = overlay.filter(ImageFilter.GaussianBlur(radius=3))
+        # NIE stosuj blur - ostre linie dla lepszej jakości
+        # overlay = overlay.filter(ImageFilter.GaussianBlur(radius=3))
         
         # Nałóż wizualizację na tło
         img = img.convert('RGBA')
