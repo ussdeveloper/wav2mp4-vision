@@ -193,10 +193,19 @@ class BackgroundManager:
         max_offset_x = img_width - self.width
         max_offset_y = img_height - self.height
         
-        # Bardzo powolne przesuwanie - tylko 30% dostępnego zakresu (70% wolniej)
-        # Płynne przesuwanie od lewej-góry do prawej-dół przez cały czas trwania
-        offset_x = int(smooth_progress * max_offset_x * 0.3)
-        offset_y = int(smooth_progress * max_offset_y * 0.3)
+        # ULTRA wolne przesuwanie: maksymalnie 1 piksel na 15 klatek (30 FPS = 0.5s)
+        # Oblicz ilość klatek (zakładając 30 FPS)
+        fps = 30
+        frame_number = int(t * fps)
+        
+        # Przesunięcie o 1px co 15 klatek = 2 piksele na sekundę
+        pixels_per_15_frames = 1
+        offset_x = int((frame_number // 15) * pixels_per_15_frames)
+        offset_y = int((frame_number // 15) * pixels_per_15_frames)
+        
+        # Ogranicz do maksymalnego dostępnego offsetu
+        offset_x = min(offset_x, max_offset_x)
+        offset_y = min(offset_y, max_offset_y)
         
         # Wytnij fragment obrazka z płynnym przesunięciem
         left = offset_x
@@ -220,15 +229,20 @@ class BackgroundManager:
         return cropped
     
     def _apply_heat_distortion(self, img, t):
-        """Zastosuj delikatny efekt rozgrzanego powietrza (heat haze)"""
+        """Zastosuj delikatny efekt rozgrzanego powietrza (heat haze) - aktualizacja co 15 klatek"""
         # Konwertuj do numpy array
         img_array = np.array(img, dtype=np.float32)
         height, width = img_array.shape[:2]
         
+        # Aktualizuj efekt tylko co 15 klatek dla subtelności
+        fps = 30
+        frame_number = int(t * fps)
+        quantized_t = (frame_number // 15) * (15 / fps)  # Zaokrąglony czas
+        
         # Parametry fali (bardzo subtelne)
         frequency = 0.5  # Częstotliwość fali
-        amplitude = 1.5  # Amplituda przesunięcia (bardzo mała dla subtelności)
-        speed = 0.3  # Prędkość animacji
+        amplitude = 1.0  # Amplituda przesunięcia (jeszcze mniejsza)
+        speed = 0.2  # Wolniejsza animacja
         
         # Utwórz siatkę współrzędnych
         x = np.arange(width)
@@ -236,8 +250,9 @@ class BackgroundManager:
         
         # Fala sinusoidalna zmieniająca się w czasie (pionowo)
         # Różne częstotliwości dla x i y dla naturalnego efektu
-        wave_y = amplitude * np.sin(2 * np.pi * frequency * (y / height) + t * speed)
-        wave_x = amplitude * 0.7 * np.sin(2 * np.pi * frequency * 1.3 * (x / width) + t * speed * 0.8)
+        # Używamy quantized_t aby efekt aktualizował się co 15 klatek
+        wave_y = amplitude * np.sin(2 * np.pi * frequency * (y / height) + quantized_t * speed)
+        wave_x = amplitude * 0.7 * np.sin(2 * np.pi * frequency * 1.3 * (x / width) + quantized_t * speed * 0.8)
         
         # Utwórz macierze przesunięć
         shift_y = np.tile(wave_y.reshape(-1, 1), (1, width))
