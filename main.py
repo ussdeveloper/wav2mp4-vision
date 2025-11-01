@@ -64,11 +64,21 @@ class BackgroundManager:
             self.time_per_image = duration / len(self.images)
         else:
             self.time_per_image = duration
-            # Dla pojedynczego obrazka użyj efektu Ken Burns
-            if background_path and os.path.exists(background_path) and os.path.isfile(background_path):
+            # Dla pojedynczego obrazka ZAWSZE użyj efektu Ken Burns (domyślnie)
+            if background_path and os.path.exists(background_path):
                 self.use_ken_burns = True
-                # Załaduj większy obrazek dla Ken Burns (120% rozmiaru)
-                self.ken_burns_img = self._load_ken_burns_image(background_path)
+                # Załaduj większy obrazek dla Ken Burns (+10% offset)
+                if os.path.isfile(background_path):
+                    self.ken_burns_img = self._load_ken_burns_image(background_path)
+                elif os.path.isdir(background_path):
+                    # Dla katalogu - znajdź pierwszy obrazek
+                    patterns = ['*.png', '*.jpg', '*.jpeg', '*.PNG', '*.JPG', '*.JPEG']
+                    for pattern in patterns:
+                        files = glob.glob(os.path.join(background_path, pattern))
+                        if files:
+                            files.sort()
+                            self.ken_burns_img = self._load_ken_burns_image(files[0])
+                            break
     
     def _load_and_resize(self, path):
         """Wczytaj i przeskaluj obrazek do rozmiaru wideo"""
@@ -100,7 +110,7 @@ class BackgroundManager:
         """Wczytaj obrazek w większym rozmiarze dla efektu Ken Burns (zoom + pan)"""
         img = Image.open(path).convert('RGB')
         
-        # Skaluj do 110% rozmiaru dla efektu zoom (50% wolniej)
+        # Skaluj aby wypełnić ekran + 10% offset dla płynnego przesuwania
         scale = 1.1
         target_width = int(self.width * scale)
         target_height = int(self.height * scale)
@@ -108,10 +118,13 @@ class BackgroundManager:
         img_ratio = img.width / img.height
         target_ratio = target_width / target_height
         
+        # Zawsze wypełnij cały ekran (cover, nie contain)
         if img_ratio > target_ratio:
+            # Obraz szerszy - skaluj po wysokości
             new_height = target_height
             new_width = int(new_height * img_ratio)
         else:
+            # Obraz wyższy - skaluj po szerokości
             new_width = target_width
             new_height = int(new_width / img_ratio)
         
@@ -160,36 +173,38 @@ class BackgroundManager:
         return current_img.copy()
     
     def _apply_ken_burns(self, t):
-        """Zastosuj efekt Ken Burns (powolny zoom + pan) do pojedynczego obrazka"""
+        """Zastosuj płynny efekt Ken Burns (zoom do wypełnienia +10% offset, potem płynne przesuwanie)"""
         if not hasattr(self, 'ken_burns_img'):
             return self.images[0].copy()
         
-        # Progress od 0 do 1 przez cały czas trwania
+        # Progress od 0 do 1 przez cały czas trwania (z easing dla płynności)
         progress = t / self.duration if self.duration > 0 else 0
         progress = np.clip(progress, 0, 1)
         
-        # Oblicz zoom (od 1.1 do 1.0 - bardzo powolne przybliżanie, 50% wolniej)
-        zoom = 1.1 - (progress * 0.1)
+        # Smooth easing function (ease-in-out) dla ultra płynnego ruchu
+        # Używamy sinusoidalnej krzywej dla naturalnego przyspieszenia/zwalniania
+        smooth_progress = (1 - np.cos(progress * np.pi)) / 2
         
-        # Oblicz offset (powolny ruch od lewej góry do prawej dół)
+        # Wymiary obrazka (już przeskalowanego do 110%)
         img_width = self.ken_burns_img.width
         img_height = self.ken_burns_img.height
         
-        # Maksymalny offset to różnica między większym obrazkiem a docelowym rozmiarem
+        # Maksymalny dostępny offset (10% z każdej strony)
         max_offset_x = img_width - self.width
         max_offset_y = img_height - self.height
         
-        # Bardzo powolny ruch po przekątnej (25% przesunięcia dla płynności)
-        offset_x = int(progress * max_offset_x * 0.25)  # 50% wolniej
-        offset_y = int(progress * max_offset_y * 0.25)
+        # Płynne przesuwanie od lewej-góry do prawej-dół przez cały czas trwania
+        # Wykorzystujemy pełny zakres 10% offsetu
+        offset_x = int(smooth_progress * max_offset_x)
+        offset_y = int(smooth_progress * max_offset_y)
         
-        # Wytnij fragment obrazka
+        # Wytnij fragment obrazka z płynnym przesunięciem
         left = offset_x
         top = offset_y
         right = left + self.width
         bottom = top + self.height
         
-        # Upewnij się, że nie wychodzimy poza granice
+        # Zabezpieczenie przed wyjściem poza granice (nie powinno się zdarzyć)
         if right > img_width:
             right = img_width
             left = right - self.width
