@@ -31,7 +31,13 @@ class BackgroundManager:
         Returns:
             Lista tupli (R, G, B) z dominującymi kolorami, posortowane według jasności
         """
+        import warnings
+        import os
         from sklearn.cluster import KMeans
+        
+        # Wycisz wszystkie warningi od joblib
+        warnings.filterwarnings('ignore', category=UserWarning)
+        os.environ['LOKY_MAX_CPU_COUNT'] = '4'  # Ustaw liczbę rdzeni aby uniknąć warningu
         
         img = Image.open(image_path).convert('RGB')
         # Zmniejsz rozmiar dla szybszości
