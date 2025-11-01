@@ -194,10 +194,11 @@ class BackgroundManager:
         max_offset_y = img_height - self.height
         
         # ULTRA wolne ale PŁYNNE przesuwanie: użyj smooth_progress dla ciągłej interpolacji
-        # Przesuwamy się przez cały dostępny zakres bardzo wolno (5% zakresu)
-        # To da płynny ruch bez przeskoków
-        offset_x = int(smooth_progress * max_offset_x * 0.05)
-        offset_y = int(smooth_progress * max_offset_y * 0.05)
+        # Zwiększam zakres do 15% aby mieć więcej pikseli = płynniejszy ruch
+        # Przy 1920x1080 i 10% offset -> max_offset ≈ 192px -> 15% z tego = ~29px całkowity zakres
+        # To da ~29 różnych pozycji dla płynnej animacji
+        offset_x = int(smooth_progress * max_offset_x * 0.15)
+        offset_y = int(smooth_progress * max_offset_y * 0.15)
         
         # Ogranicz do maksymalnego dostępnego offsetu (zabezpieczenie)
         offset_x = min(offset_x, max_offset_x)
@@ -231,9 +232,9 @@ class BackgroundManager:
         height, width = img_array.shape[:2]
         
         # Parametry fali (bardzo subtelne) - płynna animacja co klatkę
-        frequency = 0.5  # Częstotliwość fali
-        amplitude = 0.8  # Amplituda przesunięcia (bardzo mała)
-        speed = 0.15  # Bardzo wolna animacja dla płynności
+        frequency = 0.4  # Częstotliwość fali (niższa = większe fale)
+        amplitude = 0.5  # Amplituda przesunięcia (bardzo mała - jeszcze subtelniej)
+        speed = 0.1  # Bardzo wolna animacja dla płynności (wolniej)
         
         # Utwórz siatkę współrzędnych
         x = np.arange(width)
