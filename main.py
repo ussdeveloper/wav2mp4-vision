@@ -442,6 +442,11 @@ class VideoGenerator:
         # Historia dla efektu reverb (trailing)
         self.wave_history = []
         
+        # Historia flar (aktywne flary z czasem życia)
+        self.active_flares = []  # Lista: (x, y, color, birth_time)
+        self.flare_lifetime = 0.04  # 40ms życia flary
+        self.current_time = 0  # Aktualny czas w sekundach
+        
         # Załaduj font
         self.font = self._load_font()
         
@@ -544,7 +549,7 @@ class VideoGenerator:
         return colors
     
     def create_frame(self, bar_heights=None, smoothed_heights=None, 
-                    left_wave=None, right_wave=None, vocal_wave=None, background=None):
+                    left_wave=None, right_wave=None, vocal_wave=None, background=None, time=0):
         """
         Utwórz pojedynczą klatkę z wizualizacją
         
@@ -555,10 +560,14 @@ class VideoGenerator:
             right_wave: Array z amplitudami prawego kanału - dla stylu 'waveform'
             vocal_wave: Array z amplitudami wokalu - dla stylu 'waveform'
             background: PIL Image z tłem (opcjonalne)
+            time: Aktualny czas w sekundach (dla animacji flar)
             
         Returns:
             numpy array z wizualizacją
         """
+        # Zapisz aktualny czas dla animacji flar
+        self.current_time = time
+        
         # Użyj tła lub utwórz czarne
         if background is not None:
             img = background.copy()
@@ -734,65 +743,91 @@ class VideoGenerator:
             self._draw_flares(draw, points_left, points_right, points_vocal, center_y)
     
     def _draw_flares(self, draw, points_left, points_right, points_vocal, center_y):
-        """Rysuj flary na szczytach amplitudy z różnymi kolorami dla różnych częstotliwości"""
-        flare_radius = 8  # Promień flary
+        """Rysuj animowane flary (ripple effect) na szczytach amplitudy"""
         
-        # Znajdź lokalne maksima w lewym kanale
-        if len(points_left) > 2:
-            for i in range(1, len(points_left) - 1):
-                x, y = points_left[i]
-                y_prev = points_left[i-1][1]
-                y_next = points_left[i+1][1]
+        # Znajdź lokalne maksima i dodaj nowe flary
+        self._detect_and_add_flares(points_left, center_y)
+        self._detect_and_add_flares(points_right, center_y)
+        if points_vocal:
+            self._detect_and_add_flares(points_vocal, center_y, is_vocal=True)
+        
+        # Usuń wygasłe flary (starsze niż lifetime)
+        self.active_flares = [
+            flare for flare in self.active_flares 
+            if (self.current_time - flare[3]) < self.flare_lifetime
+        ]
+        
+        # Rysuj wszystkie aktywne flary z animacją ripple
+        for x, y, color, birth_time in self.active_flares:
+            age = self.current_time - birth_time
+            progress = age / self.flare_lifetime  # 0 do 1
+            
+            # Efekt ripple: okrąg powiększa się i zanika
+            max_radius = 20  # Maksymalny promień ripple
+            current_radius = progress * max_radius
+            
+            # Opacity zanika liniowo
+            base_opacity = 200
+            current_opacity = int(base_opacity * (1 - progress))
+            
+            # Rysuj ripple jako rozszerzający się okrąg
+            if current_radius > 1:
+                # Grubsza linia na początku, cieńsza na końcu
+                line_width = max(1, int(3 * (1 - progress)))
                 
-                # Szukaj lokalnych maksimów (szczytów)
-                distance_from_center = abs(y - center_y)
-                if distance_from_center > 20:  # Tylko widoczne amplitudy
-                    if (y < y_prev and y < y_next) or (y > y_prev and y > y_next):
+                color_with_alpha = color + (current_opacity,)
+                
+                # Rysuj okrąg (outline)
+                draw.ellipse(
+                    [x - current_radius, y - current_radius, 
+                     x + current_radius, y + current_radius],
+                    outline=color_with_alpha,
+                    width=line_width
+                )
+                
+                # Dodaj wewnętrzny blask (mniejszy okrąg)
+                if progress < 0.3:  # Tylko na początku
+                    inner_radius = current_radius * 0.5
+                    inner_opacity = int(current_opacity * 0.5)
+                    inner_color = color + (inner_opacity,)
+                    draw.ellipse(
+                        [x - inner_radius, y - inner_radius,
+                         x + inner_radius, y + inner_radius],
+                        fill=inner_color
+                    )
+    
+    def _detect_and_add_flares(self, points, center_y, is_vocal=False):
+        """Wykryj lokalne maksima i dodaj nowe flary"""
+        if not points or len(points) < 3:
+            return
+        
+        for i in range(1, len(points) - 1):
+            x, y = points[i]
+            y_prev = points[i-1][1]
+            y_next = points[i+1][1]
+            
+            # Szukaj lokalnych maksimów (szczytów)
+            distance_from_center = abs(y - center_y)
+            threshold = 15 if is_vocal else 25
+            
+            if distance_from_center > threshold:
+                if (y < y_prev and y < y_next) or (y > y_prev and y > y_next):
+                    # Sprawdź czy flara już nie istnieje w tym miejscu (unikaj duplikatów)
+                    exists = any(
+                        abs(flare[0] - x) < 10 and abs(flare[1] - y) < 10
+                        for flare in self.active_flares
+                    )
+                    
+                    if not exists:
                         # Kolor flary zależy od pozycji (częstotliwości)
-                        ratio = i / len(points_left)
-                        flare_color = self._get_flare_color(ratio)
+                        if is_vocal:
+                            flare_color = (255, 100, 50)  # Wokal - czerwony/pomarańczowy
+                        else:
+                            ratio = i / len(points)
+                            flare_color = self._get_flare_color(ratio)
                         
-                        # Rysuj flarę jako gradient (kilka okręgów)
-                        for r in range(flare_radius, 0, -2):
-                            alpha = int((r / flare_radius) * 150)  # Gradient opacity
-                            color_with_alpha = flare_color + (alpha,)
-                            draw.ellipse([x-r, y-r, x+r, y+r], fill=color_with_alpha)
-        
-        # Znajdź lokalne maksima w prawym kanale
-        if len(points_right) > 2:
-            for i in range(1, len(points_right) - 1):
-                x, y = points_right[i]
-                y_prev = points_right[i-1][1]
-                y_next = points_right[i+1][1]
-                
-                distance_from_center = abs(y - center_y)
-                if distance_from_center > 20:
-                    if (y < y_prev and y < y_next) or (y > y_prev and y > y_next):
-                        ratio = i / len(points_right)
-                        flare_color = self._get_flare_color(ratio)
-                        
-                        for r in range(flare_radius, 0, -2):
-                            alpha = int((r / flare_radius) * 150)
-                            color_with_alpha = flare_color + (alpha,)
-                            draw.ellipse([x-r, y-r, x+r, y+r], fill=color_with_alpha)
-        
-        # Znajdź lokalne maksima w wokalu (czerwone flary)
-        if points_vocal and len(points_vocal) > 2:
-            for i in range(1, len(points_vocal) - 1):
-                x, y = points_vocal[i]
-                y_prev = points_vocal[i-1][1]
-                y_next = points_vocal[i+1][1]
-                
-                distance_from_center = abs(y - center_y)
-                if distance_from_center > 15:
-                    if (y < y_prev and y < y_next) or (y > y_prev and y > y_next):
-                        # Wokal zawsze czerwony/pomarańczowy
-                        flare_color = (255, 100, 50)
-                        
-                        for r in range(flare_radius, 0, -2):
-                            alpha = int((r / flare_radius) * 180)
-                            color_with_alpha = flare_color + (alpha,)
-                            draw.ellipse([x-r, y-r, x+r, y+r], fill=color_with_alpha)
+                        # Dodaj nową flarę
+                        self.active_flares.append((x, y, flare_color, self.current_time))
     
     def _get_flare_color(self, ratio):
         """Pobierz kolor flary na podstawie pozycji (częstotliwości)"""
@@ -1066,7 +1101,8 @@ def create_video_from_wav(input_wav, output_mp4, resolution="1920x1080",
                 left_wave=left_wave,
                 right_wave=right_wave,
                 vocal_wave=vocal_wave,
-                background=bg
+                background=bg,
+                time=t
             )
             
             # Zapamiętaj
@@ -1081,7 +1117,8 @@ def create_video_from_wav(input_wav, output_mp4, resolution="1920x1080",
             frame = video_gen.create_frame(
                 bar_heights=bar_heights,
                 smoothed_heights=previous_heights,
-                background=bg
+                background=bg,
+                time=t
             )
             
             # Zapamiętaj
