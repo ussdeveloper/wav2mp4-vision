@@ -193,10 +193,10 @@ class BackgroundManager:
         max_offset_x = img_width - self.width
         max_offset_y = img_height - self.height
         
+        # Bardzo powolne przesuwanie - tylko 30% dostępnego zakresu (70% wolniej)
         # Płynne przesuwanie od lewej-góry do prawej-dół przez cały czas trwania
-        # Wykorzystujemy pełny zakres 10% offsetu
-        offset_x = int(smooth_progress * max_offset_x)
-        offset_y = int(smooth_progress * max_offset_y)
+        offset_x = int(smooth_progress * max_offset_x * 0.3)
+        offset_y = int(smooth_progress * max_offset_y * 0.3)
         
         # Wytnij fragment obrazka z płynnym przesunięciem
         left = offset_x
@@ -213,7 +213,48 @@ class BackgroundManager:
             top = bottom - self.height
         
         cropped = self.ken_burns_img.crop((left, top, right, bottom))
+        
+        # Dodaj delikatny efekt rozgrzanego powietrza (heat distortion)
+        cropped = self._apply_heat_distortion(cropped, t)
+        
         return cropped
+    
+    def _apply_heat_distortion(self, img, t):
+        """Zastosuj delikatny efekt rozgrzanego powietrza (heat haze)"""
+        # Konwertuj do numpy array
+        img_array = np.array(img, dtype=np.float32)
+        height, width = img_array.shape[:2]
+        
+        # Parametry fali (bardzo subtelne)
+        frequency = 0.5  # Częstotliwość fali
+        amplitude = 1.5  # Amplituda przesunięcia (bardzo mała dla subtelności)
+        speed = 0.3  # Prędkość animacji
+        
+        # Utwórz siatkę współrzędnych
+        x = np.arange(width)
+        y = np.arange(height)
+        
+        # Fala sinusoidalna zmieniająca się w czasie (pionowo)
+        # Różne częstotliwości dla x i y dla naturalnego efektu
+        wave_y = amplitude * np.sin(2 * np.pi * frequency * (y / height) + t * speed)
+        wave_x = amplitude * 0.7 * np.sin(2 * np.pi * frequency * 1.3 * (x / width) + t * speed * 0.8)
+        
+        # Utwórz macierze przesunięć
+        shift_y = np.tile(wave_y.reshape(-1, 1), (1, width))
+        shift_x = np.tile(wave_x, (height, 1))
+        
+        # Nowe współrzędne z przesunięciem
+        y_coords, x_coords = np.meshgrid(y, x, indexing='ij')
+        y_new = np.clip(y_coords + shift_y, 0, height - 1).astype(np.int32)
+        x_new = np.clip(x_coords + shift_x, 0, width - 1).astype(np.int32)
+        
+        # Zastosuj przesunięcie
+        distorted = img_array[y_new, x_new]
+        
+        # Konwertuj z powrotem do uint8
+        distorted = np.clip(distorted, 0, 255).astype(np.uint8)
+        
+        return Image.fromarray(distorted)
 
 
 class AudioVisualizer:
