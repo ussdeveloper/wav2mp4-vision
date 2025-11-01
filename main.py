@@ -403,7 +403,7 @@ class VideoGenerator:
                  left_color=(255, 255, 0), right_color=(0, 255, 0), opacity=0.9,
                  vocal_color=(255, 50, 50), text=None, text_opacity=0.8,
                  watermark=None, watermark_x=10, watermark_y=10, add_flares=True,
-                 flare_duration=500):
+                 flare_duration=500, screen_flash_intensity=0.3):
         """
         Inicjalizacja generatora wideo
         
@@ -452,6 +452,12 @@ class VideoGenerator:
         self.amplitude_record = 0.0  # Maksymalna amplituda od ostatniego resetu
         self.record_reset_interval = 3.0  # Reset co 3 sekundy
         self.last_record_reset = 0.0  # Czas ostatniego resetu
+        
+        # Absolutny rekord amplitudy (nigdy się nie resetuje)
+        self.absolute_record = 0.0  # Najwyższa amplituda w całym utworze
+        self.screen_flash_intensity = screen_flash_intensity  # Intensywność flasha (0.0-1.0)
+        self.active_flashes = []  # Lista: (birth_time, intensity) - aktywne flasze na cały ekran
+        self.flash_duration = 0.15  # 150ms trwania flasha
         
         # Załaduj font
         self.font = self._load_font()
@@ -598,6 +604,10 @@ class VideoGenerator:
         img = img.convert('RGBA')
         img = Image.alpha_composite(img, overlay)
         
+        # Dodaj flash na cały ekran dla absolutnych rekordów (przed tekstem)
+        if self.screen_flash_intensity > 0:
+            self._draw_screen_flash(img)
+        
         # Dodaj tekst jeśli jest ustawiony
         if self.text:
             self._draw_text(img)
@@ -609,6 +619,33 @@ class VideoGenerator:
         img = img.convert('RGB')
         
         return np.array(img)
+    
+    def _draw_screen_flash(self, img):
+        """Rysuj flash na cały ekran dla absolutnych rekordów amplitudy"""
+        # Usuń wygasłe flashe
+        self.active_flashes = [
+            flash for flash in self.active_flashes
+            if (self.current_time - flash[0]) < self.flash_duration
+        ]
+        
+        # Rysuj wszystkie aktywne flashe
+        for birth_time, intensity in self.active_flashes:
+            age = self.current_time - birth_time
+            progress = age / self.flash_duration  # 0 do 1
+            
+            # Efekt: szybki rozblysk i powolne zanikanie
+            if progress < 0.1:
+                # Pierwsze 10% - szybki wzrost
+                flash_opacity = int(255 * intensity * (progress / 0.1))
+            else:
+                # Pozostałe 90% - powolne zanikanie
+                flash_opacity = int(255 * intensity * (1 - (progress - 0.1) / 0.9))
+            
+            if flash_opacity > 0:
+                # Utwórz warstwę flasha (biały dla maksymalnego efektu)
+                flash_layer = Image.new('RGBA', (self.width, self.height), 
+                                       (255, 255, 255, flash_opacity))
+                img.paste(flash_layer, (0, 0), flash_layer)
     
     def _draw_text(self, img):
         """Rysuj tekst w prawym dolnym rogu"""
@@ -859,10 +896,19 @@ class VideoGenerator:
                     )
                     
                     if not exists:
-                        # Sprawdź czy to nowy rekord amplitudy
+                        # Sprawdź czy to nowy rekord amplitudy w oknie 3s
                         is_record = distance_from_center > self.amplitude_record
                         if is_record:
                             self.amplitude_record = distance_from_center
+                        
+                        # Sprawdź czy to absolutny rekord (najwyższy ever)
+                        if distance_from_center > self.absolute_record:
+                            self.absolute_record = distance_from_center
+                            # Dodaj flash na cały ekran dla absolutnego rekordu
+                            if self.screen_flash_intensity > 0:
+                                # Intensywność zależy od tego jak duży jest skok
+                                flash_intensity = self.screen_flash_intensity
+                                self.active_flashes.append((self.current_time, flash_intensity))
                         
                         # Kolor flary zależy od pozycji (częstotliwości)
                         if is_vocal:
@@ -1023,7 +1069,8 @@ def process_batch(batch_dir, args):
                 watermark_y=args.watermark_y,
                 test_length=args.test_length,
                 add_flares=not args.no_flares,
-                flare_duration=args.flare_duration
+                flare_duration=args.flare_duration,
+                screen_flash_intensity=args.screen_flash
             )
             print(f"✅ Ukończono: {output_file}")
         except Exception as e:
@@ -1040,7 +1087,8 @@ def create_video_from_wav(input_wav, output_mp4, resolution="1920x1080",
                          left_color=(255, 255, 0), right_color=(0, 255, 0),
                          opacity=0.9, text=None, text_opacity=0.8,
                          watermark=None, watermark_x=10, watermark_y=10,
-                         test_length=None, add_flares=True, flare_duration=500):
+                         test_length=None, add_flares=True, flare_duration=500,
+                         screen_flash_intensity=0.3):
     """
     Główna funkcja konwertująca WAV do MP4 z wizualizacją
     
@@ -1112,7 +1160,8 @@ def create_video_from_wav(input_wav, output_mp4, resolution="1920x1080",
                               left_color, right_color, opacity,
                               vocal_color=(255, 50, 50), text=text, text_opacity=text_opacity,
                               watermark=watermark, watermark_x=watermark_x, watermark_y=watermark_y,
-                              add_flares=add_flares, flare_duration=flare_duration)
+                              add_flares=add_flares, flare_duration=flare_duration,
+                              screen_flash_intensity=screen_flash_intensity)
     
     # Inicjalizuj manager tła
     bg_manager = BackgroundManager(background, width, height, visualizer.duration)
@@ -1272,6 +1321,8 @@ Przykłady użycia:
                        help='Wyłącz kolorowe flary na szczytach amplitudy (domyślnie: włączone)')
     parser.add_argument('--flare-duration', type=int, default=500,
                        help='Czas życia flary w milisekundach (domyślnie: 500ms)')
+    parser.add_argument('--screen-flash', type=float, default=0.3,
+                       help='Intensywność flasha na cały ekran dla rekordów (0.0-1.0, 0=wyłączone, domyślnie: 0.3)')
     parser.add_argument('--batch', action='store_true',
                        help='Tryb batch - przetwarzaj katalogi z podkatalogami zawierającymi WAV+obrazki')
     
@@ -1313,7 +1364,8 @@ Przykłady użycia:
                 watermark_y=args.watermark_y,
                 test_length=args.test_length,
                 add_flares=not args.no_flares,
-                flare_duration=args.flare_duration
+                flare_duration=args.flare_duration,
+                screen_flash_intensity=args.screen_flash
             )
     except Exception as e:
         print(f"❌ Błąd: {e}", file=sys.stderr)
