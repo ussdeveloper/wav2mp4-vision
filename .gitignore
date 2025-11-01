@@ -72,3 +72,6 @@ test_*.mp4
 # FFmpeg cache
 ffmpeg2pass-0.log
 ffmpeg2pass-0.log.mbtree
+
+# Temporary files directory
+tmp/

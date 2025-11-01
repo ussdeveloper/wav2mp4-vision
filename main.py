@@ -14,6 +14,8 @@ from scipy.io import wavfile
 from moviepy import VideoClip, AudioFileClip
 from PIL import Image, ImageDraw, ImageFilter, ImageChops, ImageFont
 import wave
+import tempfile
+import shutil
 
 
 class BackgroundManager:
@@ -35,6 +37,7 @@ class BackgroundManager:
         self.duration = duration
         self.crossfade_duration = crossfade_duration
         self.images = []
+        self.use_ken_burns = False  # Efekt Ken Burns dla pojedynczego obrazka
         
         if background_path and os.path.exists(background_path):
             if os.path.isfile(background_path):
@@ -61,6 +64,11 @@ class BackgroundManager:
             self.time_per_image = duration / len(self.images)
         else:
             self.time_per_image = duration
+            # Dla pojedynczego obrazka użyj efektu Ken Burns
+            if background_path and os.path.exists(background_path) and os.path.isfile(background_path):
+                self.use_ken_burns = True
+                # Załaduj większy obrazek dla Ken Burns (120% rozmiaru)
+                self.ken_burns_img = self._load_ken_burns_image(background_path)
     
     def _load_and_resize(self, path):
         """Wczytaj i przeskaluj obrazek do rozmiaru wideo"""
@@ -88,6 +96,28 @@ class BackgroundManager:
         
         return img
     
+    def _load_ken_burns_image(self, path):
+        """Wczytaj obrazek w większym rozmiarze dla efektu Ken Burns (zoom + pan)"""
+        img = Image.open(path).convert('RGB')
+        
+        # Skaluj do 120% rozmiaru dla efektu zoom
+        scale = 1.2
+        target_width = int(self.width * scale)
+        target_height = int(self.height * scale)
+        
+        img_ratio = img.width / img.height
+        target_ratio = target_width / target_height
+        
+        if img_ratio > target_ratio:
+            new_height = target_height
+            new_width = int(new_height * img_ratio)
+        else:
+            new_width = target_width
+            new_height = int(new_width / img_ratio)
+        
+        img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        return img
+    
     def get_frame(self, t):
         """
         Pobierz klatkę tła dla czasu t z płynnym przejściem
@@ -99,6 +129,9 @@ class BackgroundManager:
             PIL Image
         """
         if len(self.images) == 1:
+            # Efekt Ken Burns dla pojedynczego obrazka
+            if self.use_ken_burns:
+                return self._apply_ken_burns(t)
             return self.images[0].copy()
         
         # Który obrazek powinien być wyświetlany
@@ -125,6 +158,47 @@ class BackgroundManager:
                 return blended
         
         return current_img.copy()
+    
+    def _apply_ken_burns(self, t):
+        """Zastosuj efekt Ken Burns (powolny zoom + pan) do pojedynczego obrazka"""
+        if not hasattr(self, 'ken_burns_img'):
+            return self.images[0].copy()
+        
+        # Progress od 0 do 1 przez cały czas trwania
+        progress = t / self.duration if self.duration > 0 else 0
+        progress = np.clip(progress, 0, 1)
+        
+        # Oblicz zoom (od 1.2 do 1.0 - powolne przybliżanie)
+        zoom = 1.2 - (progress * 0.2)
+        
+        # Oblicz offset (powolny ruch od lewej góry do prawej dół)
+        img_width = self.ken_burns_img.width
+        img_height = self.ken_burns_img.height
+        
+        # Maksymalny offset to różnica między większym obrazkiem a docelowym rozmiarem
+        max_offset_x = img_width - self.width
+        max_offset_y = img_height - self.height
+        
+        # Powolny ruch po przekątnej
+        offset_x = int(progress * max_offset_x * 0.5)  # Tylko 50% przesunięcia
+        offset_y = int(progress * max_offset_y * 0.5)
+        
+        # Wytnij fragment obrazka
+        left = offset_x
+        top = offset_y
+        right = left + self.width
+        bottom = top + self.height
+        
+        # Upewnij się, że nie wychodzimy poza granice
+        if right > img_width:
+            right = img_width
+            left = right - self.width
+        if bottom > img_height:
+            bottom = img_height
+            top = bottom - self.height
+        
+        cropped = self.ken_burns_img.crop((left, top, right, bottom))
+        return cropped
 
 
 class AudioVisualizer:
@@ -359,6 +433,9 @@ class VideoGenerator:
         self.opacity = opacity
         self.text = text
         self.text_opacity = text_opacity
+        self.watermark = watermark
+        self.watermark_x = watermark_x
+        self.watermark_y = watermark_y
         
         # Historia dla efektu reverb (trailing)
         self.wave_history = []
@@ -366,8 +443,10 @@ class VideoGenerator:
         # Załaduj font
         self.font = self._load_font()
         
-        # Załaduj font
-        self.font = self._load_font()
+        # Załaduj watermark jeśli jest podany
+        self.watermark_img = None
+        if watermark and os.path.exists(watermark):
+            self.watermark_img = self._load_watermark(watermark)
         
         # Kolory gradientu (od niebieskiego przez zielony do czerwonego)
         if waveform_style == 'bars':
@@ -375,7 +454,7 @@ class VideoGenerator:
     
     def _load_font(self):
         """Załaduj font Arial lub Roboto"""
-        font_size = int(self.height * 0.03)  # 3% wysokości ekranu
+        font_size = int(self.height * 0.015)  # 1.5% wysokości ekranu (50% mniejszy)
         
         # Spróbuj różne fonty
         font_names = [
@@ -400,6 +479,35 @@ class VideoGenerator:
             return ImageFont.truetype("arial.ttf", font_size)
         except:
             return ImageFont.load_default()
+    
+    def _load_watermark(self, watermark_path):
+        """Załaduj i przeskaluj watermark"""
+        try:
+            watermark = Image.open(watermark_path).convert('RGBA')
+            
+            # Przeskaluj watermark do max 15% szerokości ekranu
+            max_width = int(self.width * 0.15)
+            ratio = max_width / watermark.width
+            new_width = max_width
+            new_height = int(watermark.height * ratio)
+            
+            watermark = watermark.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            return watermark
+        except Exception as e:
+            print(f"⚠️ Nie można załadować watermark: {e}")
+            return None
+    
+    def _draw_watermark(self, img):
+        """Rysuj watermark na obrazie"""
+        if self.watermark_img is None:
+            return
+        
+        # Oblicz pozycję w pikselach na podstawie % od lewej górnej
+        x = int((self.watermark_x / 100) * self.width)
+        y = int((self.watermark_y / 100) * self.height)
+        
+        # Nałóż watermark
+        img.paste(self.watermark_img, (x, y), self.watermark_img)
         
     def _generate_gradient_colors(self):
         """Generuj gradient kolorów dla pasków"""
@@ -477,6 +585,10 @@ class VideoGenerator:
         if self.text:
             self._draw_text(img)
         
+        # Dodaj watermark jeśli jest ustawiony
+        if self.watermark:
+            self._draw_watermark(img)
+        
         img = img.convert('RGB')
         
         return np.array(img)
@@ -485,18 +597,21 @@ class VideoGenerator:
         """Rysuj tekst w prawym dolnym rogu"""
         draw = ImageDraw.Draw(img)
         
-        # Oblicz pozycję (1% marginesu)
-        margin_x = int(self.width * 0.01)
-        margin_y = int(self.height * 0.01)
+        # Konwertuj tekst na wielkie litery (CAPS)
+        text_caps = self.text.upper()
+        
+        # Oblicz pozycję (2% marginesu)
+        margin_x = int(self.width * 0.02)
+        margin_y = int(self.height * 0.02)
         
         # Pobierz rozmiar tekstu
         try:
-            bbox = draw.textbbox((0, 0), self.text, font=self.font)
+            bbox = draw.textbbox((0, 0), text_caps, font=self.font)
             text_width = bbox[2] - bbox[0]
             text_height = bbox[3] - bbox[1]
         except:
             # Fallback dla starszych wersji Pillow
-            text_width, text_height = draw.textsize(self.text, font=self.font)
+            text_width, text_height = draw.textsize(text_caps, font=self.font)
         
         # Pozycja: prawy dolny róg z marginesem
         x = self.width - text_width - margin_x
@@ -508,10 +623,10 @@ class VideoGenerator:
         text_color = (255, 255, 255, int(255 * self.text_opacity))
         
         # Cień
-        draw.text((x + shadow_offset, y + shadow_offset), self.text, 
+        draw.text((x + shadow_offset, y + shadow_offset), text_caps, 
                  font=self.font, fill=shadow_color)
         # Tekst
-        draw.text((x, y), self.text, font=self.font, fill=text_color)
+        draw.text((x, y), text_caps, font=self.font, fill=text_color)
     
     def _draw_waveforms(self, draw, left_wave, right_wave, vocal_wave=None):
         """
@@ -526,7 +641,7 @@ class VideoGenerator:
         # Parametry
         center_y = self.height / 2
         amplitude_scale = self.height * 0.35  # 35% wysokości dla amplitudy
-        line_width = 3
+        line_width = 2  # Cieńsze linie dla lepszej rozdzielczości
         
         # Lewy kanał - żółty (na środku)
         points_left = []
@@ -569,7 +684,7 @@ class VideoGenerator:
             
             # Oblicz opacity dla starszych klatek (efekt zanikania)
             age_factor = (idx + 1) / len(self.wave_history)
-            trail_opacity = self.opacity * age_factor * 0.3  # Słabsze dla trailing
+            trail_opacity = 0.4 * age_factor * 0.5  # Reverb z opacity 0.4
             
             # Rysuj trailing lewego kanału
             if len(old_left) > 1:
@@ -734,7 +849,7 @@ def process_batch(batch_dir, args):
 
 
 def create_video_from_wav(input_wav, output_mp4, resolution="1920x1080", 
-                         audio_bitrate="320k", fps=30, bars=500,
+                         audio_bitrate="320k", fps=30, bars=750,
                          background=None, waveform_style='waveform',
                          left_color=(255, 255, 0), right_color=(0, 255, 0),
                          opacity=0.9, text=None, text_opacity=0.8,
@@ -760,6 +875,11 @@ def create_video_from_wav(input_wav, output_mp4, resolution="1920x1080",
     """
     print(f"📁 Wczytuję plik: {input_wav}")
     
+    # Jeśli output_mp4 nie ma ścieżki, zapisz w lokalizacji input
+    if not os.path.dirname(output_mp4):
+        input_dir = os.path.dirname(os.path.abspath(input_wav))
+        output_mp4 = os.path.join(input_dir, output_mp4)
+    
     # Parse resolution
     width, height = map(int, resolution.lower().split('x'))
     print(f"📺 Rozdzielczość: {width}x{height}")
@@ -769,14 +889,34 @@ def create_video_from_wav(input_wav, output_mp4, resolution="1920x1080",
     if background:
         print(f"🖼️  Tło: {background}")
     
-    # Inicjalizuj analizator audio
-    visualizer = AudioVisualizer(input_wav, num_bars=bars)
+    # Tryb testowy - obetnij plik WAV najpierw
+    wav_to_process = input_wav
+    temp_wav = None
     
-    # Tryb testowy - skróć długość
-    original_duration = visualizer.duration
     if test_length is not None:
-        visualizer.duration = original_duration * (test_length / 100)
-        print(f"⚡ TRYB TESTOWY: {test_length}% pliku ({visualizer.duration:.2f}s z {original_duration:.2f}s)")
+        print(f"⚡ TRYB TESTOWY: Przycinam plik do {test_length}%")
+        
+        # Wczytaj WAV
+        sample_rate, audio_data = wavfile.read(input_wav)
+        original_duration = len(audio_data) / sample_rate
+        target_duration = original_duration * (test_length / 100)
+        target_samples = int(sample_rate * target_duration)
+        
+        # Obetnij audio
+        cut_audio = audio_data[:target_samples]
+        
+        # Zapisz do tymczasowego pliku w katalogu tmp
+        tmp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tmp')
+        os.makedirs(tmp_dir, exist_ok=True)
+        
+        temp_wav = os.path.join(tmp_dir, f"temp_test_{os.path.basename(input_wav)}")
+        wavfile.write(temp_wav, sample_rate, cut_audio)
+        
+        wav_to_process = temp_wav
+        print(f"⚡ TRYB TESTOWY: {test_length}% pliku ({target_duration:.2f}s z {original_duration:.2f}s)")
+    
+    # Inicjalizuj analizator audio
+    visualizer = AudioVisualizer(wav_to_process, num_bars=bars)
     
     print(f"⏱️  Długość: {visualizer.duration:.2f} sekund")
     print(f"🔊 Format: {'Stereo' if visualizer.is_stereo else 'Mono'}")
@@ -850,7 +990,7 @@ def create_video_from_wav(input_wav, output_mp4, resolution="1920x1080",
     video_clip = video_clip.with_fps(fps)
     
     # Wczytaj audio
-    audio_clip = AudioFileClip(input_wav)
+    audio_clip = AudioFileClip(wav_to_process)
     
     # Połącz wideo z audio
     final_clip = video_clip.with_audio(audio_clip)
@@ -873,6 +1013,14 @@ def create_video_from_wav(input_wav, output_mp4, resolution="1920x1080",
     
     print("✅ Gotowe!")
     print(f"📦 Plik zapisany: {output_mp4}")
+    
+    # Usuń tymczasowy plik WAV
+    if temp_wav and os.path.exists(temp_wav):
+        try:
+            os.remove(temp_wav)
+            print("🗑️  Usunięto tymczasowy plik")
+        except:
+            pass
 
 
 def main():
@@ -907,8 +1055,8 @@ Przykłady użycia:
                        help='Bitrate audio (domyślnie: 320k)')
     parser.add_argument('--fps', type=int, default=30,
                        help='Klatki na sekundę (domyślnie: 30)')
-    parser.add_argument('--bars', type=int, default=500,
-                       help='Liczba punktów wizualizacji (domyślnie: 500 dla lepszej rozdzielczości)')
+    parser.add_argument('--bars', type=int, default=750,
+                       help='Liczba punktów wizualizacji (domyślnie: 750 dla wyższej rozdzielczości)')
     parser.add_argument('--background', default=None,
                        help='Ścieżka do obrazka lub katalogu z obrazkami dla tła')
     parser.add_argument('--style', default='waveform', choices=['waveform', 'bars'],
