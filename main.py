@@ -402,7 +402,7 @@ class VideoGenerator:
     def __init__(self, width, height, fps=30, bars=64, waveform_style='waveform', 
                  left_color=(255, 255, 0), right_color=(0, 255, 0), opacity=0.9,
                  vocal_color=(255, 50, 50), text=None, text_opacity=0.8,
-                 watermark=None, watermark_x=10, watermark_y=10):
+                 watermark=None, watermark_x=10, watermark_y=10, add_flares=False):
         """
         Inicjalizacja generatora wideo
         
@@ -421,6 +421,7 @@ class VideoGenerator:
             watermark: Ścieżka do pliku znaku wodnego (None = brak)
             watermark_x: Pozycja X znaku wodnego w % (0-100)
             watermark_y: Pozycja Y znaku wodnego w % (0-100)
+            add_flares: Dodaj flary na szczytach amplitudy (True/False)
         """
         self.width = width
         self.height = height
@@ -436,6 +437,7 @@ class VideoGenerator:
         self.watermark = watermark
         self.watermark_x = watermark_x
         self.watermark_y = watermark_y
+        self.add_flares = add_flares
         
         # Historia dla efektu reverb (trailing)
         self.wave_history = []
@@ -726,6 +728,108 @@ class VideoGenerator:
                 color_with_alpha = self.vocal_color + (int(255 * self.opacity),)
                 draw.line([points_vocal[i], points_vocal[i + 1]], 
                          fill=color_with_alpha, width=line_width)
+        
+        # Rysuj flary na szczytach amplitudy (opcjonalnie)
+        if self.add_flares:
+            self._draw_flares(draw, points_left, points_right, points_vocal, center_y)
+    
+    def _draw_flares(self, draw, points_left, points_right, points_vocal, center_y):
+        """Rysuj flary na szczytach amplitudy z różnymi kolorami dla różnych częstotliwości"""
+        flare_radius = 8  # Promień flary
+        
+        # Znajdź lokalne maksima w lewym kanale
+        if len(points_left) > 2:
+            for i in range(1, len(points_left) - 1):
+                x, y = points_left[i]
+                y_prev = points_left[i-1][1]
+                y_next = points_left[i+1][1]
+                
+                # Szukaj lokalnych maksimów (szczytów)
+                distance_from_center = abs(y - center_y)
+                if distance_from_center > 20:  # Tylko widoczne amplitudy
+                    if (y < y_prev and y < y_next) or (y > y_prev and y > y_next):
+                        # Kolor flary zależy od pozycji (częstotliwości)
+                        ratio = i / len(points_left)
+                        flare_color = self._get_flare_color(ratio)
+                        
+                        # Rysuj flarę jako gradient (kilka okręgów)
+                        for r in range(flare_radius, 0, -2):
+                            alpha = int((r / flare_radius) * 150)  # Gradient opacity
+                            color_with_alpha = flare_color + (alpha,)
+                            draw.ellipse([x-r, y-r, x+r, y+r], fill=color_with_alpha)
+        
+        # Znajdź lokalne maksima w prawym kanale
+        if len(points_right) > 2:
+            for i in range(1, len(points_right) - 1):
+                x, y = points_right[i]
+                y_prev = points_right[i-1][1]
+                y_next = points_right[i+1][1]
+                
+                distance_from_center = abs(y - center_y)
+                if distance_from_center > 20:
+                    if (y < y_prev and y < y_next) or (y > y_prev and y > y_next):
+                        ratio = i / len(points_right)
+                        flare_color = self._get_flare_color(ratio)
+                        
+                        for r in range(flare_radius, 0, -2):
+                            alpha = int((r / flare_radius) * 150)
+                            color_with_alpha = flare_color + (alpha,)
+                            draw.ellipse([x-r, y-r, x+r, y+r], fill=color_with_alpha)
+        
+        # Znajdź lokalne maksima w wokalu (czerwone flary)
+        if points_vocal and len(points_vocal) > 2:
+            for i in range(1, len(points_vocal) - 1):
+                x, y = points_vocal[i]
+                y_prev = points_vocal[i-1][1]
+                y_next = points_vocal[i+1][1]
+                
+                distance_from_center = abs(y - center_y)
+                if distance_from_center > 15:
+                    if (y < y_prev and y < y_next) or (y > y_prev and y > y_next):
+                        # Wokal zawsze czerwony/pomarańczowy
+                        flare_color = (255, 100, 50)
+                        
+                        for r in range(flare_radius, 0, -2):
+                            alpha = int((r / flare_radius) * 180)
+                            color_with_alpha = flare_color + (alpha,)
+                            draw.ellipse([x-r, y-r, x+r, y+r], fill=color_with_alpha)
+    
+    def _get_flare_color(self, ratio):
+        """Pobierz kolor flary na podstawie pozycji (częstotliwości)"""
+        # Gradient kolorów: niski -> średni -> wysoki
+        # Niebieski (bas) -> Cyan -> Zielony -> Żółty -> Pomarańczowy -> Czerwony (wysoki)
+        
+        if ratio < 0.2:
+            # Niskie częstotliwości - niebieski/cyan
+            r = int(ratio / 0.2 * 100)
+            g = int(ratio / 0.2 * 200)
+            b = 255
+        elif ratio < 0.4:
+            # Średnie-niskie - cyan/zielony
+            local_ratio = (ratio - 0.2) / 0.2
+            r = 0
+            g = 200 + int(local_ratio * 55)
+            b = 255 - int(local_ratio * 155)
+        elif ratio < 0.6:
+            # Średnie - zielony/żółty
+            local_ratio = (ratio - 0.4) / 0.2
+            r = int(local_ratio * 255)
+            g = 255
+            b = 100 - int(local_ratio * 100)
+        elif ratio < 0.8:
+            # Średnie-wysokie - żółty/pomarańczowy
+            local_ratio = (ratio - 0.6) / 0.2
+            r = 255
+            g = 255 - int(local_ratio * 100)
+            b = 0
+        else:
+            # Wysokie częstotliwości - pomarańczowy/czerwony
+            local_ratio = (ratio - 0.8) / 0.2
+            r = 255
+            g = 155 - int(local_ratio * 155)
+            b = 0
+        
+        return (r, g, b)
     
     def _draw_bars(self, draw, bar_heights, smoothed_heights):
         """
@@ -837,7 +941,8 @@ def process_batch(batch_dir, args):
                 watermark=args.watermark,
                 watermark_x=args.watermark_x,
                 watermark_y=args.watermark_y,
-                test_length=args.test_length
+                test_length=args.test_length,
+                add_flares=args.add_flares
             )
             print(f"✅ Ukończono: {output_file}")
         except Exception as e:
@@ -854,7 +959,7 @@ def create_video_from_wav(input_wav, output_mp4, resolution="1920x1080",
                          left_color=(255, 255, 0), right_color=(0, 255, 0),
                          opacity=0.9, text=None, text_opacity=0.8,
                          watermark=None, watermark_x=10, watermark_y=10,
-                         test_length=None):
+                         test_length=None, add_flares=False):
     """
     Główna funkcja konwertująca WAV do MP4 z wizualizacją
     
@@ -925,7 +1030,8 @@ def create_video_from_wav(input_wav, output_mp4, resolution="1920x1080",
     video_gen = VideoGenerator(width, height, fps, bars, waveform_style, 
                               left_color, right_color, opacity,
                               vocal_color=(255, 50, 50), text=text, text_opacity=text_opacity,
-                              watermark=watermark, watermark_x=watermark_x, watermark_y=watermark_y)
+                              watermark=watermark, watermark_x=watermark_x, watermark_y=watermark_y,
+                              add_flares=add_flares)
     
     # Inicjalizuj manager tła
     bg_manager = BackgroundManager(background, width, height, visualizer.duration)
@@ -1079,6 +1185,8 @@ Przykłady użycia:
                        help='Pozycja Y znaku wodnego w %% od góry (domyślnie: 10)')
     parser.add_argument('--test-length', type=float, default=None,
                        help='Renderuj tylko X%% pliku dla szybkich testów (np. 10 = pierwsze 10%%)')
+    parser.add_argument('--add-flares', action='store_true',
+                       help='Dodaj kolorowe flary na szczytach amplitudy (różne kolory dla różnych częstotliwości)')
     parser.add_argument('--batch', action='store_true',
                        help='Tryb batch - przetwarzaj katalogi z podkatalogami zawierającymi WAV+obrazki')
     
@@ -1118,7 +1226,8 @@ Przykłady użycia:
                 watermark=args.watermark,
                 watermark_x=args.watermark_x,
                 watermark_y=args.watermark_y,
-                test_length=args.test_length
+                test_length=args.test_length,
+                add_flares=args.add_flares
             )
     except Exception as e:
         print(f"❌ Błąd: {e}", file=sys.stderr)
