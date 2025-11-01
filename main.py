@@ -456,8 +456,8 @@ class VideoGenerator:
         # Absolutny rekord amplitudy (nigdy się nie resetuje)
         self.absolute_record = 0.0  # Najwyższa amplituda w całym utworze
         self.screen_flash_intensity = screen_flash_intensity  # Intensywność flasha (0.0-1.0)
-        self.active_flashes = []  # Lista: (birth_time, intensity) - aktywne flasze na cały ekran
-        self.flash_duration = 0.15  # 150ms trwania flasha
+        self.active_flashes = []  # Lista: (birth_time, intensity, x, y) - flashe rozchodzące się od punktu
+        self.flash_duration = 0.3  # 300ms trwania flasha (dłużej dla efektu rozchodzenia)
         
         # Załaduj font
         self.font = self._load_font()
@@ -621,7 +621,7 @@ class VideoGenerator:
         return np.array(img)
     
     def _draw_screen_flash(self, img):
-        """Rysuj flash na cały ekran dla absolutnych rekordów amplitudy"""
+        """Rysuj flash rozchodzący się od miejsca absolutnego rekordu amplitudy"""
         # Usuń wygasłe flashe
         self.active_flashes = [
             flash for flash in self.active_flashes
@@ -629,23 +629,45 @@ class VideoGenerator:
         ]
         
         # Rysuj wszystkie aktywne flashe
-        for birth_time, intensity in self.active_flashes:
+        draw = ImageDraw.Draw(img)
+        for birth_time, intensity, x, y in self.active_flashes:
             age = self.current_time - birth_time
             progress = age / self.flash_duration  # 0 do 1
             
-            # Efekt: szybki rozblysk i powolne zanikanie
-            if progress < 0.1:
-                # Pierwsze 10% - szybki wzrost
-                flash_opacity = int(255 * intensity * (progress / 0.1))
-            else:
-                # Pozostałe 90% - powolne zanikanie
-                flash_opacity = int(255 * intensity * (1 - (progress - 0.1) / 0.9))
+            # Flash rozchodzi się od punktu do krawędzi ekranu
+            max_distance = max(self.width, self.height) * 1.5  # Poza ekran
+            current_radius = progress * max_distance
             
-            if flash_opacity > 0:
-                # Utwórz warstwę flasha (biały dla maksymalnego efektu)
-                flash_layer = Image.new('RGBA', (self.width, self.height), 
-                                       (255, 255, 255, flash_opacity))
-                img.paste(flash_layer, (0, 0), flash_layer)
+            # Opacity: szybki rozbłysk, potem zanikanie
+            if progress < 0.15:
+                # Pierwsze 15% - szybki wzrost do maksimum
+                flash_opacity = int(255 * intensity * (progress / 0.15))
+            else:
+                # Pozostałe 85% - zanikanie
+                flash_opacity = int(255 * intensity * (1 - (progress - 0.15) / 0.85))
+            
+            if flash_opacity > 5 and current_radius > 1:
+                # Rysuj rozchodzący się okrąg (gradient od centrum)
+                # Wewnętrzny okrąg - bardziej intensywny
+                inner_radius = current_radius * 0.3
+                if inner_radius > 10:
+                    inner_opacity = min(flash_opacity, int(255 * intensity * 0.8))
+                    color_inner = (255, 255, 255, inner_opacity)
+                    draw.ellipse(
+                        [x - inner_radius, y - inner_radius,
+                         x + inner_radius, y + inner_radius],
+                        fill=color_inner
+                    )
+                
+                # Zewnętrzny pierścień - zanika
+                ring_width = max(10, int(current_radius * 0.1))
+                color_ring = (255, 255, 255, flash_opacity)
+                draw.ellipse(
+                    [x - current_radius, y - current_radius,
+                     x + current_radius, y + current_radius],
+                    outline=color_ring,
+                    width=ring_width
+                )
     
     def _draw_text(self, img):
         """Rysuj tekst w prawym dolnym rogu"""
@@ -904,11 +926,12 @@ class VideoGenerator:
                         # Sprawdź czy to absolutny rekord (najwyższy ever)
                         if distance_from_center > self.absolute_record:
                             self.absolute_record = distance_from_center
-                            # Dodaj flash na cały ekran dla absolutnego rekordu
+                            # Dodaj flash rozchodzący się od miejsca rekordu
                             if self.screen_flash_intensity > 0:
                                 # Intensywność zależy od tego jak duży jest skok
                                 flash_intensity = self.screen_flash_intensity
-                                self.active_flashes.append((self.current_time, flash_intensity))
+                                # Zapisz pozycję (x, y) gdzie wystąpił rekord
+                                self.active_flashes.append((self.current_time, flash_intensity, x, y))
                         
                         # Kolor flary zależy od pozycji (częstotliwości)
                         if is_vocal:
@@ -1088,7 +1111,7 @@ def create_video_from_wav(input_wav, output_mp4, resolution="1920x1080",
                          opacity=0.9, text=None, text_opacity=0.8,
                          watermark=None, watermark_x=10, watermark_y=10,
                          test_length=None, add_flares=True, flare_duration=500,
-                         screen_flash_intensity=0.3):
+                         screen_flash_intensity=0.6):
     """
     Główna funkcja konwertująca WAV do MP4 z wizualizacją
     
@@ -1129,6 +1152,17 @@ def create_video_from_wav(input_wav, output_mp4, resolution="1920x1080",
     
     if test_length is not None:
         print(f"⚡ TRYB TESTOWY: Przycinam plik do {test_length}%")
+        
+        # W trybie testowym zawsze używaj obrazka z katalogu utworu (jeśli nie podano background)
+        if not background:
+            input_dir = os.path.dirname(os.path.abspath(input_wav))
+            # Szukaj obrazków (png, jpg, jpeg) w katalogu utworu
+            image_exts = ['.png', '.jpg', '.jpeg']
+            for file in os.listdir(input_dir):
+                if any(file.lower().endswith(ext) for ext in image_exts):
+                    background = os.path.join(input_dir, file)
+                    print(f"🖼️  Tryb testowy: Znaleziono tło {file} w katalogu utworu")
+                    break
         
         # Wczytaj WAV
         sample_rate, audio_data = wavfile.read(input_wav)
@@ -1321,8 +1355,8 @@ Przykłady użycia:
                        help='Wyłącz kolorowe flary na szczytach amplitudy (domyślnie: włączone)')
     parser.add_argument('--flare-duration', type=int, default=500,
                        help='Czas życia flary w milisekundach (domyślnie: 500ms)')
-    parser.add_argument('--screen-flash', type=float, default=0.3,
-                       help='Intensywność flasha na cały ekran dla rekordów (0.0-1.0, 0=wyłączone, domyślnie: 0.3)')
+    parser.add_argument('--screen-flash', type=float, default=0.6,
+                       help='Intensywność flasha rozchodzącego się od rekordów (0.0-1.0, 0=wyłączone, domyślnie: 0.6)')
     parser.add_argument('--batch', action='store_true',
                        help='Tryb batch - przetwarzaj katalogi z podkatalogami zawierającymi WAV+obrazki')
     
