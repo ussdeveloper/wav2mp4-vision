@@ -402,7 +402,8 @@ class VideoGenerator:
     def __init__(self, width, height, fps=30, bars=64, waveform_style='waveform', 
                  left_color=(255, 255, 0), right_color=(0, 255, 0), opacity=0.9,
                  vocal_color=(255, 50, 50), text=None, text_opacity=0.8,
-                 watermark=None, watermark_x=10, watermark_y=10, add_flares=False):
+                 watermark=None, watermark_x=10, watermark_y=10, add_flares=False,
+                 flare_duration=250):
         """
         Inicjalizacja generatora wideo
         
@@ -444,7 +445,7 @@ class VideoGenerator:
         
         # Historia flar (aktywne flary z czasem życia)
         self.active_flares = []  # Lista: (x, y, color, birth_time)
-        self.flare_lifetime = 0.04  # 40ms życia flary
+        self.flare_lifetime = 0.25  # 250ms życia flary (domyślnie)
         self.current_time = 0  # Aktualny czas w sekundach
         
         # Załaduj font
@@ -977,7 +978,8 @@ def process_batch(batch_dir, args):
                 watermark_x=args.watermark_x,
                 watermark_y=args.watermark_y,
                 test_length=args.test_length,
-                add_flares=args.add_flares
+                add_flares=args.add_flares,
+                flare_duration=args.flare_duration
             )
             print(f"✅ Ukończono: {output_file}")
         except Exception as e:
@@ -994,7 +996,7 @@ def create_video_from_wav(input_wav, output_mp4, resolution="1920x1080",
                          left_color=(255, 255, 0), right_color=(0, 255, 0),
                          opacity=0.9, text=None, text_opacity=0.8,
                          watermark=None, watermark_x=10, watermark_y=10,
-                         test_length=None, add_flares=False):
+                         test_length=None, add_flares=False, flare_duration=250):
     """
     Główna funkcja konwertująca WAV do MP4 z wizualizacją
     
@@ -1066,7 +1068,7 @@ def create_video_from_wav(input_wav, output_mp4, resolution="1920x1080",
                               left_color, right_color, opacity,
                               vocal_color=(255, 50, 50), text=text, text_opacity=text_opacity,
                               watermark=watermark, watermark_x=watermark_x, watermark_y=watermark_y,
-                              add_flares=add_flares)
+                              add_flares=add_flares, flare_duration=flare_duration)
     
     # Inicjalizuj manager tła
     bg_manager = BackgroundManager(background, width, height, visualizer.duration)
@@ -1224,6 +1226,8 @@ Przykłady użycia:
                        help='Renderuj tylko X%% pliku dla szybkich testów (np. 10 = pierwsze 10%%)')
     parser.add_argument('--add-flares', action='store_true',
                        help='Dodaj kolorowe flary na szczytach amplitudy (różne kolory dla różnych częstotliwości)')
+    parser.add_argument('--flare-duration', type=int, default=250,
+                       help='Czas życia flary w milisekundach (domyślnie: 250ms)')
     parser.add_argument('--batch', action='store_true',
                        help='Tryb batch - przetwarzaj katalogi z podkatalogami zawierającymi WAV+obrazki')
     
@@ -1264,7 +1268,8 @@ Przykłady użycia:
                 watermark_x=args.watermark_x,
                 watermark_y=args.watermark_y,
                 test_length=args.test_length,
-                add_flares=args.add_flares
+                add_flares=args.add_flares,
+                flare_duration=args.flare_duration
             )
     except Exception as e:
         print(f"❌ Błąd: {e}", file=sys.stderr)
