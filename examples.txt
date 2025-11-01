@@ -1,0 +1,53 @@
+# Przykładowe użycie - skopiuj i dostosuj do swoich potrzeb
+
+# ========== PODSTAWOWE ==========
+
+# Domyślne - 3 sinusoidy (żółty L, zielony R, czerwony wokal)
+# python main.py input.wav output.mp4
+
+# Z tekstem (zawsze CAPS, 2% margines dół)
+# python main.py input.wav output.mp4 --text "Song Title - Artist Name"
+
+# Test pierwszych 10% (szybkie sprawdzenie ~1-2 min zamiast 15 min)
+# python main.py input.wav test.mp4 --test-length 10
+
+# Z tłem z katalogu example-pic (gradienty)
+# python main.py "Club Sexsension.wav" output.mp4 --background example-pic
+
+# Z pojedynczym obrazkiem, tekstem i znakiem wodnym
+# python main.py input.wav output.mp4 --background photo.jpg --text "My Song 2025" --watermark logo.png
+
+
+# ========== ZAAWANSOWANE ==========
+
+# Pełna konfiguracja z wszystkimi opcjami
+# python main.py input.wav output.mp4 --background ./images/ --text "Song 2025" --watermark logo.png --watermark-x 5 --watermark-y 5 --opacity 0.95 --text-opacity 0.9
+
+# Test 10% z tłem i znakiem wodnym (dla szybkiej weryfikacji)
+# python main.py input.wav test.mp4 --background photo.jpg --watermark logo.png --test-length 10
+
+# 4K z wysoką jakością i niestandardową opacity
+# python main.py input.wav output.mp4 --resolution 3840x2160 --audio-bitrate 320k --fps 60 --opacity 0.95
+
+# Niestandardowe kolory (różowy + cyjan)
+# python main.py input.wav output.mp4 --left-color 255,105,180 --right-color 0,255,255
+
+# Więcej punktów dla ultra gładkiej wizualizacji
+# python main.py input.wav output.mp4 --bars 800 --opacity 1.0
+
+# Znak wodny w prawym dolnym rogu (90%, 90%)
+# python main.py input.wav output.mp4 --watermark logo.png --watermark-x 90 --watermark-y 90
+
+# Stary styl (equalizera)
+# python main.py input.wav output.mp4 --style bars --bars 128
+
+
+# ========== TRYB BATCH ==========
+
+# Przetwarzaj wiele katalogów z zestawami WAV+obrazki
+# Struktura: batch-folder/song1/{audio.wav, img1.jpg, img2.png}
+#            batch-folder/song2/{music.wav, bg.jpg}
+# python main.py batch-folder dummy.mp4 --batch
+
+# Batch z niestandardowymi parametrami
+# python main.py batch-folder dummy.mp4 --batch --resolution 2560x1440 --fps 60 --opacity 0.85

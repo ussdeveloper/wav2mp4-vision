@@ -1,0 +1,74 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg
+MANIFEST
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+.virtualenv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Generated Videos (MP4 files)
+*.mp4
+!example-output.mp4
+
+# Generated Audio
+*.wav
+!example.wav
+
+# Temporary MoviePy files
+*TEMP_MPY*.mp4
+*TEMP_MPY*.wav
+
+# Generated Images (keep example-pic folder structure but ignore content)
+example-pic/*.jpg
+example-pic/*.png
+example-pic/*.jpeg
+watermark_*.png
+watermark_*.jpg
+
+# Batch processing outputs
+batch-example/*/output/
+batch-example/*/*/*.mp4
+
+# Logs
+*.log
+
+# OS Files
+Thumbs.db
+.DS_Store
+
+# Test files (optional - comment out if you want to include test outputs)
+test_*.mp4
+*_test.mp4
+
+# FFmpeg cache
+ffmpeg2pass-0.log
+ffmpeg2pass-0.log.mbtree
