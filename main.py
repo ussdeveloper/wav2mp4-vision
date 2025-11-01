@@ -621,53 +621,55 @@ class VideoGenerator:
         return np.array(img)
     
     def _draw_screen_flash(self, img):
-        """Rysuj flash rozchodzący się od miejsca absolutnego rekordu amplitudy"""
+        """Rysuj flash rozchodzący się od miejsca absolutnego rekordu amplitudy (jak ripple)"""
         # Usuń wygasłe flashe
         self.active_flashes = [
             flash for flash in self.active_flashes
             if (self.current_time - flash[0]) < self.flash_duration
         ]
         
-        # Rysuj wszystkie aktywne flashe
+        # Rysuj wszystkie aktywne flashe jako ripple
         draw = ImageDraw.Draw(img)
         for birth_time, intensity, x, y in self.active_flashes:
             age = self.current_time - birth_time
             progress = age / self.flash_duration  # 0 do 1
             
-            # Flash rozchodzi się od punktu do krawędzi ekranu
-            max_distance = max(self.width, self.height) * 1.5  # Poza ekran
-            current_radius = progress * max_distance
+            # Flash rozchodzi się jak ripple - wiele koncentrycznych okręgów
+            max_distance = max(self.width, self.height) * 1.5
             
-            # Opacity: szybki rozbłysk, potem zanikanie
-            if progress < 0.15:
-                # Pierwsze 15% - szybki wzrost do maksimum
-                flash_opacity = int(255 * intensity * (progress / 0.15))
-            else:
-                # Pozostałe 85% - zanikanie
-                flash_opacity = int(255 * intensity * (1 - (progress - 0.15) / 0.85))
-            
-            if flash_opacity > 5 and current_radius > 1:
-                # Rysuj rozchodzący się okrąg (gradient od centrum)
-                # Wewnętrzny okrąg - bardziej intensywny
-                inner_radius = current_radius * 0.3
-                if inner_radius > 10:
-                    inner_opacity = min(flash_opacity, int(255 * intensity * 0.8))
-                    color_inner = (255, 255, 255, inner_opacity)
-                    draw.ellipse(
-                        [x - inner_radius, y - inner_radius,
-                         x + inner_radius, y + inner_radius],
-                        fill=color_inner
-                    )
+            # Rysuj kilka fal ripple (3-5 fal) z gradientem opacity
+            num_ripples = 5
+            for i in range(num_ripples):
+                # Każda fala zaczyna się z opóźnieniem
+                wave_delay = i * 0.15  # 15% opóźnienia między falami
+                wave_progress = (progress - wave_delay) / (1.0 - wave_delay)
                 
-                # Zewnętrzny pierścień - zanika
-                ring_width = max(10, int(current_radius * 0.1))
-                color_ring = (255, 255, 255, flash_opacity)
-                draw.ellipse(
-                    [x - current_radius, y - current_radius,
-                     x + current_radius, y + current_radius],
-                    outline=color_ring,
-                    width=ring_width
-                )
+                if wave_progress > 0 and wave_progress < 1:
+                    # Promień dla tej fali
+                    wave_radius = wave_progress * max_distance
+                    
+                    # Opacity dla tej fali - zanika z czasem i odległością od centrum
+                    # Gradient: intensywne na początku, zanikające z czasem
+                    base_opacity = intensity * (1 - wave_progress)  # Zanika liniowo
+                    
+                    # Każda kolejna fala jest słabsza
+                    wave_factor = 1.0 - (i / num_ripples) * 0.5  # Pierwsza fala: 1.0, ostatnia: 0.5
+                    current_opacity = int(255 * base_opacity * wave_factor)
+                    
+                    if current_opacity > 15 and wave_radius > 5:
+                        # Szerokość pierścienia - cieńsze dla dalszych fal
+                        ring_width = max(3, int(20 - wave_progress * 15))
+                        
+                        # Kolor biały z opacity
+                        color_ring = (255, 255, 255, current_opacity)
+                        
+                        # Rysuj pierścień (outline)
+                        draw.ellipse(
+                            [x - wave_radius, y - wave_radius,
+                             x + wave_radius, y + wave_radius],
+                            outline=color_ring,
+                            width=ring_width
+                        )
     
     def _draw_text(self, img):
         """Rysuj tekst w prawym dolnym rogu"""
@@ -1111,7 +1113,7 @@ def create_video_from_wav(input_wav, output_mp4, resolution="1920x1080",
                          opacity=0.9, text=None, text_opacity=0.8,
                          watermark=None, watermark_x=10, watermark_y=10,
                          test_length=None, add_flares=True, flare_duration=500,
-                         screen_flash_intensity=0.6):
+                         screen_flash_intensity=0.9):
     """
     Główna funkcja konwertująca WAV do MP4 z wizualizacją
     
@@ -1355,8 +1357,8 @@ Przykłady użycia:
                        help='Wyłącz kolorowe flary na szczytach amplitudy (domyślnie: włączone)')
     parser.add_argument('--flare-duration', type=int, default=500,
                        help='Czas życia flary w milisekundach (domyślnie: 500ms)')
-    parser.add_argument('--screen-flash', type=float, default=0.6,
-                       help='Intensywność flasha rozchodzącego się od rekordów (0.0-1.0, 0=wyłączone, domyślnie: 0.6)')
+    parser.add_argument('--screen-flash', type=float, default=0.9,
+                       help='Intensywność flasha rozchodzącego się od rekordów (0.06-0.9, 0=wyłączone, domyślnie: 0.9)')
     parser.add_argument('--batch', action='store_true',
                        help='Tryb batch - przetwarzaj katalogi z podkatalogami zawierającymi WAV+obrazki')
     
