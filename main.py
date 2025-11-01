@@ -722,6 +722,7 @@ class VideoGenerator:
         center_y = self.height / 2
         amplitude_scale = self.height * 0.35  # 35% wysokości dla amplitudy
         line_width = 2  # Cieńsze linie dla lepszej rozdzielczości
+        vocal_line_width = 4  # Wokal grubszy o 100%
         
         # Lewy kanał - żółty (na środku)
         points_left = []
@@ -800,12 +801,12 @@ class VideoGenerator:
                 draw.line([points_right[i], points_right[i + 1]], 
                          fill=color_with_alpha, width=line_width)
         
-        # Rysuj aktualną falę wokalu (na wierzchu)
+        # Rysuj aktualną falę wokalu (na wierzchu, grubsza linia)
         if len(points_vocal) > 1:
             for i in range(len(points_vocal) - 1):
                 color_with_alpha = self.vocal_color + (int(255 * self.opacity),)
                 draw.line([points_vocal[i], points_vocal[i + 1]], 
-                         fill=color_with_alpha, width=line_width)
+                         fill=color_with_alpha, width=vocal_line_width)
         
         # Rysuj flary na szczytach amplitudy (opcjonalnie)
         if self.add_flares:
@@ -1115,7 +1116,7 @@ def create_video_from_wav(input_wav, output_mp4, resolution="1920x1080",
                          opacity=0.9, text=None, text_opacity=0.8,
                          watermark=None, watermark_x=10, watermark_y=10,
                          test_length=None, add_flares=True, flare_duration=500,
-                         screen_flash_intensity=0.9):
+                         screen_flash_intensity=0.0):
     """
     Główna funkcja konwertująca WAV do MP4 z wizualizacją
     
@@ -1147,6 +1148,18 @@ def create_video_from_wav(input_wav, output_mp4, resolution="1920x1080",
     print(f"🎵 Bitrate audio: {audio_bitrate}")
     print(f"🎬 FPS: {fps}")
     print(f"📊 Styl wizualizacji: {waveform_style}")
+    
+    # Auto-wykrywanie obrazka z katalogu utworu (jeśli nie podano background)
+    if not background:
+        input_dir = os.path.dirname(os.path.abspath(input_wav))
+        # Szukaj obrazków (png, jpg, jpeg) w katalogu utworu
+        image_exts = ['.png', '.jpg', '.jpeg']
+        for file in os.listdir(input_dir):
+            if any(file.lower().endswith(ext) for ext in image_exts):
+                background = os.path.join(input_dir, file)
+                print(f"🖼️  Auto: Znaleziono tło {file} w katalogu utworu")
+                break
+    
     if background:
         print(f"🖼️  Tło: {background}")
     
@@ -1156,17 +1169,6 @@ def create_video_from_wav(input_wav, output_mp4, resolution="1920x1080",
     
     if test_length is not None:
         print(f"⚡ TRYB TESTOWY: Przycinam plik do {test_length}%")
-        
-        # W trybie testowym zawsze używaj obrazka z katalogu utworu (jeśli nie podano background)
-        if not background:
-            input_dir = os.path.dirname(os.path.abspath(input_wav))
-            # Szukaj obrazków (png, jpg, jpeg) w katalogu utworu
-            image_exts = ['.png', '.jpg', '.jpeg']
-            for file in os.listdir(input_dir):
-                if any(file.lower().endswith(ext) for ext in image_exts):
-                    background = os.path.join(input_dir, file)
-                    print(f"🖼️  Tryb testowy: Znaleziono tło {file} w katalogu utworu")
-                    break
         
         # Wczytaj WAV
         sample_rate, audio_data = wavfile.read(input_wav)
@@ -1359,8 +1361,8 @@ Przykłady użycia:
                        help='Wyłącz kolorowe flary na szczytach amplitudy (domyślnie: włączone)')
     parser.add_argument('--flare-duration', type=int, default=500,
                        help='Czas życia flary w milisekundach (domyślnie: 500ms)')
-    parser.add_argument('--screen-flash', type=float, default=0.9,
-                       help='Intensywność flasha rozchodzącego się od rekordów (0.06-0.9, 0=wyłączone, domyślnie: 0.9)')
+    parser.add_argument('--screen-flash', type=float, default=0.0,
+                       help='Intensywność flasha rozchodzącego się od rekordów (0.06-0.9, 0=wyłączone, domyślnie: 0.0 - wyłączone)')
     parser.add_argument('--batch', action='store_true',
                        help='Tryb batch - przetwarzaj katalogi z podkatalogami zawierającymi WAV+obrazki')
     
