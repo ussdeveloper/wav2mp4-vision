@@ -21,6 +21,83 @@ import shutil
 class BackgroundManager:
     """Klasa do zarządzania tłem z obrazków"""
     
+    def extract_dominant_colors(self, image_path, num_colors=3):
+        """Wyciągnij dominujące kolory z obrazka używając k-means clustering
+        
+        Args:
+            image_path: Ścieżka do obrazka
+            num_colors: Liczba dominujących kolorów do wyciągnięcia
+            
+        Returns:
+            Lista tupli (R, G, B) z dominującymi kolorami, posortowane według jasności
+        """
+        from sklearn.cluster import KMeans
+        
+        img = Image.open(image_path).convert('RGB')
+        # Zmniejsz rozmiar dla szybszości
+        img = img.resize((150, 150), Image.Resampling.LANCZOS)
+        pixels = np.array(img).reshape(-1, 3)
+        
+        # K-means clustering dla znalezienia dominujących kolorów
+        kmeans = KMeans(n_clusters=num_colors, random_state=42, n_init=10)
+        kmeans.fit(pixels)
+        colors = kmeans.cluster_centers_.astype(int)
+        
+        # Sortuj kolory według jasności (brightness)
+        brightness = [0.299*r + 0.587*g + 0.114*b for r, g, b in colors]
+        sorted_colors = [color for _, color in sorted(zip(brightness, colors), reverse=True)]
+        
+        # Zwiększ saturację i brightness dla efektu neonowego
+        neon_colors = []
+        for color in sorted_colors:
+            r, g, b = color
+            # Konwertuj do HSV dla manipulacji
+            max_c = max(r, g, b)
+            min_c = min(r, g, b)
+            diff = max_c - min_c
+            
+            if max_c == min_c:
+                h = 0
+            elif max_c == r:
+                h = (60 * ((g - b) / diff) + 360) % 360
+            elif max_c == g:
+                h = (60 * ((b - r) / diff) + 120) % 360
+            else:
+                h = (60 * ((r - g) / diff) + 240) % 360
+            
+            s = 0 if max_c == 0 else (diff / max_c)
+            v = max_c / 255.0
+            
+            # Zwiększ saturację i brightness dla neonowego efektu
+            s = min(1.0, s * 1.5)  # +50% saturacji
+            v = min(1.0, v * 1.3)  # +30% jasności
+            
+            # Konwertuj z powrotem do RGB
+            c = v * s
+            x = c * (1 - abs(((h / 60) % 2) - 1))
+            m = v - c
+            
+            if 0 <= h < 60:
+                r_new, g_new, b_new = c, x, 0
+            elif 60 <= h < 120:
+                r_new, g_new, b_new = x, c, 0
+            elif 120 <= h < 180:
+                r_new, g_new, b_new = 0, c, x
+            elif 180 <= h < 240:
+                r_new, g_new, b_new = 0, x, c
+            elif 240 <= h < 300:
+                r_new, g_new, b_new = x, 0, c
+            else:
+                r_new, g_new, b_new = c, 0, x
+            
+            r_new = int((r_new + m) * 255)
+            g_new = int((g_new + m) * 255)
+            b_new = int((b_new + m) * 255)
+            
+            neon_colors.append((r_new, g_new, b_new))
+        
+        return neon_colors
+    
     def __init__(self, background_path, width, height, duration, crossfade_duration=2.0):
         """
         Inicjalizacja managera tła
@@ -802,9 +879,9 @@ class VideoGenerator:
         amplitude_scale = self.height * 0.35  # 35% wysokości dla amplitudy
         line_width = 1  # Ultra cienka linia - neon
         vocal_line_width = 1  # Wokal też 1px (neon)
-        # Gradientowy glow - 3 warstwy (outer, middle, inner)
-        glow_widths = [12, 6, 3]  # Od najszerszego do najwęższego
-        glow_opacities = [0.05, 0.10, 0.15]  # Od najmniej widocznego do najbardziej
+        # Gradientowy glow - mniejszy, bardziej naturalny (2 warstwy)
+        glow_widths = [5, 3]  # Mniejsze szerokości dla naturalności
+        glow_opacities = [0.08, 0.12]  # Delikatniejsze dla naturalności
         
         # Lewy kanał - żółty (na środku)
         points_left = []
@@ -1320,16 +1397,50 @@ def create_video_from_wav(input_wav, output_mp4, resolution="1920x1080",
     print(f"⏱️  Długość: {visualizer.duration:.2f} sekund")
     print(f"🔊 Format: {'Stereo' if visualizer.is_stereo else 'Mono'}")
     
-    # Inicjalizuj generator wideo
+    # Inicjalizuj manager tła NAJPIERW (żeby móc wyciągnąć kolory)
+    bg_manager = BackgroundManager(background, width, height, visualizer.duration)
+    
+    # Auto-wykryj kolory z obrazka tła (jeśli background jest podany)
+    if background and os.path.exists(background):
+        try:
+            # Wyciągnij 3 dominujące kolory (posortowane od najjaśniejszego)
+            image_path = background
+            if os.path.isdir(background):
+                # Jeśli katalog, weź pierwszy obrazek
+                patterns = ['*.png', '*.jpg', '*.jpeg', '*.PNG', '*.JPG', '*.JPEG']
+                for pattern in patterns:
+                    files = glob.glob(os.path.join(background, pattern))
+                    if files:
+                        files.sort()
+                        image_path = files[0]
+                        break
+            
+            dominant_colors = bg_manager.extract_dominant_colors(image_path, num_colors=3)
+            
+            # Przypisz kolory: lewy = kolor1, prawy = kolor2, wokal = kolor3 (najjaśniejszy - akcent)
+            if len(dominant_colors) >= 3:
+                left_color = dominant_colors[1]   # Drugi najjaśniejszy
+                right_color = dominant_colors[2]  # Trzeci najjaśniejszy
+                vocal_color = dominant_colors[0]  # NAJJAŚNIEJSZY dla akcentu na wokal
+                print(f"🎨 Auto-kolory z obrazka:")
+                print(f"   Lewy: RGB{left_color}")
+                print(f"   Prawy: RGB{right_color}")
+                print(f"   Wokal (akcent): RGB{vocal_color}")
+            else:
+                vocal_color = (255, 0, 100)
+        except Exception as e:
+            print(f"⚠️  Nie udało się wyciągnąć kolorów z obrazka: {e}")
+            vocal_color = (255, 0, 100)
+    else:
+        vocal_color = (255, 0, 100)
+    
+    # Inicjalizuj generator wideo z wykrytymi kolorami
     video_gen = VideoGenerator(width, height, fps, bars, waveform_style, 
                               left_color, right_color, opacity,
-                              vocal_color=(255, 0, 100), text=text, text_opacity=text_opacity,
+                              vocal_color=vocal_color, text=text, text_opacity=text_opacity,
                               watermark=watermark, watermark_x=watermark_x, watermark_y=watermark_y,
                               add_flares=add_flares, flare_duration=flare_duration,
                               screen_flash_intensity=screen_flash_intensity)
-    
-    # Inicjalizuj manager tła
-    bg_manager = BackgroundManager(background, width, height, visualizer.duration)
     
     # Stan dla wygładzania animacji
     previous_heights = np.zeros(bars)
