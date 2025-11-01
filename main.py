@@ -1023,11 +1023,11 @@ class VideoGenerator:
     def _draw_flares(self, draw, points_left, points_right, points_vocal, center_y):
         """Rysuj animowane flary (ripple effect) na szczytach amplitudy"""
         
-        # Znajdź lokalne maksima i dodaj nowe flary
-        self._detect_and_add_flares(points_left, center_y)
-        self._detect_and_add_flares(points_right, center_y)
+        # Znajdź lokalne maksima i dodaj nowe flary z odpowiednimi kolorami kanałów
+        self._detect_and_add_flares(points_left, center_y, channel='left')
+        self._detect_and_add_flares(points_right, center_y, channel='right')
         if points_vocal:
-            self._detect_and_add_flares(points_vocal, center_y, is_vocal=True)
+            self._detect_and_add_flares(points_vocal, center_y, channel='vocal')
         
         # Usuń wygasłe flary (starsze niż lifetime)
         self.active_flares = [
@@ -1103,8 +1103,14 @@ class VideoGenerator:
                             fill=core_color
                         )
     
-    def _detect_and_add_flares(self, points, center_y, is_vocal=False):
-        """Wykryj lokalne maksima i dodaj nowe flary"""
+    def _detect_and_add_flares(self, points, center_y, channel='left'):
+        """Wykryj lokalne maksima i dodaj nowe flary
+        
+        Args:
+            points: Lista punktów fali
+            center_y: Środek Y ekranu
+            channel: 'left', 'right', lub 'vocal' - określa kolor ripple
+        """
         if not points or len(points) < 3:
             return
         
@@ -1120,7 +1126,7 @@ class VideoGenerator:
             
             # Szukaj lokalnych maksimów (szczytów)
             distance_from_center = abs(y - center_y)
-            threshold = 15 if is_vocal else 25
+            threshold = 15 if channel == 'vocal' else 25
             
             if distance_from_center > threshold:
                 if (y < y_prev and y < y_next) or (y > y_prev and y > y_next):
@@ -1146,12 +1152,13 @@ class VideoGenerator:
                                 # Zapisz pozycję (x, y) gdzie wystąpił rekord
                                 self.active_flashes.append((self.current_time, flash_intensity, x, y))
                         
-                        # Kolor flary zależy od pozycji (częstotliwości)
-                        if is_vocal:
-                            flare_color = (255, 100, 50)  # Wokal - czerwony/pomarańczowy
-                        else:
-                            ratio = i / len(points)
-                            flare_color = self._get_flare_color(ratio)
+                        # Kolor ripple dopasowany do koloru kanału
+                        if channel == 'vocal':
+                            flare_color = self.vocal_color  # Wokal - kolor wokalu
+                        elif channel == 'left':
+                            flare_color = self.left_color   # Lewy kanał
+                        else:  # right
+                            flare_color = self.right_color  # Prawy kanał
                         
                         # Dodaj nową flarę z informacją czy to rekord
                         self.active_flares.append((x, y, flare_color, self.current_time, is_record))
