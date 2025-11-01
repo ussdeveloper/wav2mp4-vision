@@ -193,18 +193,13 @@ class BackgroundManager:
         max_offset_x = img_width - self.width
         max_offset_y = img_height - self.height
         
-        # ULTRA wolne ale PŁYNNE przesuwanie: 2 piksele na sekundę
-        # Używamy smooth_progress dla ciągłej interpolacji (subpixel precision)
-        pixels_per_second = 2.0
+        # ULTRA wolne ale PŁYNNE przesuwanie: użyj smooth_progress dla ciągłej interpolacji
+        # Przesuwamy się przez cały dostępny zakres bardzo wolno (5% zakresu)
+        # To da płynny ruch bez przeskoków
+        offset_x = int(smooth_progress * max_offset_x * 0.05)
+        offset_y = int(smooth_progress * max_offset_y * 0.05)
         
-        # Oblicz przesunięcie w pikselach (płynne, z częścią ułamkową)
-        total_pixels = t * pixels_per_second
-        
-        # Zastosuj płynne przesunięcie (zaokrąglone do najbliższego piksela)
-        offset_x = int(round(total_pixels))
-        offset_y = int(round(total_pixels))
-        
-        # Ogranicz do maksymalnego dostępnego offsetu
+        # Ogranicz do maksymalnego dostępnego offsetu (zabezpieczenie)
         offset_x = min(offset_x, max_offset_x)
         offset_y = min(offset_y, max_offset_y)
         
