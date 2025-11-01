@@ -998,7 +998,7 @@ def create_video_from_wav(input_wav, output_mp4, resolution="1920x1080",
     print(f"💾 Zapisuję do: {output_mp4}")
     
     # Zapisz jako MP4 z dobrą jakością
-    # moviepy automatycznie zachowa metadane audio z oryginalnego pliku WAV
+    # USUŃ WSZYSTKIE METADANE z pliku wejściowego (tylko treść audio/wideo)
     final_clip.write_videofile(
         output_mp4,
         codec='libx264',
@@ -1007,8 +1007,8 @@ def create_video_from_wav(input_wav, output_mp4, resolution="1920x1080",
         fps=fps,
         preset='slow',  # Lepsza jakość, wolniejsze kodowanie
         bitrate='8000k',  # Wysokie bitrate wideo dla dobrej jakości
-        # Zachowaj metadane audio
-        ffmpeg_params=['-map_metadata', '0']
+        # NIE kopiuj metadanych - usuń wszystkie metadane z pliku wejściowego
+        ffmpeg_params=['-map_metadata', '-1']
     )
     
     print("✅ Gotowe!")
