@@ -402,8 +402,8 @@ class VideoGenerator:
     def __init__(self, width, height, fps=30, bars=64, waveform_style='waveform', 
                  left_color=(255, 255, 0), right_color=(0, 255, 0), opacity=0.9,
                  vocal_color=(255, 50, 50), text=None, text_opacity=0.8,
-                 watermark=None, watermark_x=10, watermark_y=10, add_flares=False,
-                 flare_duration=250):
+                 watermark=None, watermark_x=10, watermark_y=10, add_flares=True,
+                 flare_duration=500):
         """
         Inicjalizacja generatora wideo
         
@@ -444,9 +444,14 @@ class VideoGenerator:
         self.wave_history = []
         
         # Historia flar (aktywne flary z czasem życia)
-        self.active_flares = []  # Lista: (x, y, color, birth_time)
-        self.flare_lifetime = 0.25  # 250ms życia flary (domyślnie)
+        self.active_flares = []  # Lista: (x, y, color, birth_time, is_record)
+        self.flare_lifetime = flare_duration / 1000.0  # Konwersja ms na sekundy
         self.current_time = 0  # Aktualny czas w sekundach
+        
+        # System rekordów amplitudy (resetuje się co kilka sekund)
+        self.amplitude_record = 0.0  # Maksymalna amplituda od ostatniego resetu
+        self.record_reset_interval = 3.0  # Reset co 3 sekundy
+        self.last_record_reset = 0.0  # Czas ostatniego resetu
         
         # Załaduj font
         self.font = self._load_font()
@@ -759,22 +764,39 @@ class VideoGenerator:
         ]
         
         # Rysuj wszystkie aktywne flary z animacją ripple
-        for x, y, color, birth_time in self.active_flares:
+        for flare_data in self.active_flares:
+            # Rozpakowuj dane flary (obsługuj stary i nowy format)
+            if len(flare_data) == 5:
+                x, y, color, birth_time, is_record = flare_data
+            else:
+                x, y, color, birth_time = flare_data
+                is_record = False
+            
             age = self.current_time - birth_time
             progress = age / self.flare_lifetime  # 0 do 1
             
+            # Parametry intensywności dla rekordów amplitudy
+            if is_record:
+                max_radius = 35  # Większy promień dla rekordów
+                base_opacity = 250  # Bardziej intensywny
+                line_width_base = 5  # Grubsza linia
+                inner_glow_duration = 0.5  # Dłuższy blask
+            else:
+                max_radius = 20  # Normalny promień
+                base_opacity = 200
+                line_width_base = 3
+                inner_glow_duration = 0.3
+            
             # Efekt ripple: okrąg powiększa się i zanika
-            max_radius = 20  # Maksymalny promień ripple
             current_radius = progress * max_radius
             
             # Opacity zanika liniowo
-            base_opacity = 200
             current_opacity = int(base_opacity * (1 - progress))
             
             # Rysuj ripple jako rozszerzający się okrąg
             if current_radius > 1:
                 # Grubsza linia na początku, cieńsza na końcu
-                line_width = max(1, int(3 * (1 - progress)))
+                line_width = max(1, int(line_width_base * (1 - progress)))
                 
                 color_with_alpha = color + (current_opacity,)
                 
@@ -787,20 +809,37 @@ class VideoGenerator:
                 )
                 
                 # Dodaj wewnętrzny blask (mniejszy okrąg)
-                if progress < 0.3:  # Tylko na początku
+                if progress < inner_glow_duration:
                     inner_radius = current_radius * 0.5
-                    inner_opacity = int(current_opacity * 0.5)
+                    inner_opacity = int(current_opacity * 0.6)
                     inner_color = color + (inner_opacity,)
                     draw.ellipse(
                         [x - inner_radius, y - inner_radius,
                          x + inner_radius, y + inner_radius],
                         fill=inner_color
                     )
+                    
+                    # Dla rekordów - dodaj jeszcze intensywniejszy środek
+                    if is_record and progress < 0.2:
+                        core_radius = current_radius * 0.2
+                        core_opacity = int(255 * (1 - progress / 0.2))
+                        # Biały środek dla maksymalnej jasności
+                        core_color = (255, 255, 255, core_opacity)
+                        draw.ellipse(
+                            [x - core_radius, y - core_radius,
+                             x + core_radius, y + core_radius],
+                            fill=core_color
+                        )
     
     def _detect_and_add_flares(self, points, center_y, is_vocal=False):
         """Wykryj lokalne maksima i dodaj nowe flary"""
         if not points or len(points) < 3:
             return
+        
+        # Reset rekordów amplitudy co kilka sekund
+        if self.current_time - self.last_record_reset > self.record_reset_interval:
+            self.amplitude_record = 0.0
+            self.last_record_reset = self.current_time
         
         for i in range(1, len(points) - 1):
             x, y = points[i]
@@ -820,6 +859,11 @@ class VideoGenerator:
                     )
                     
                     if not exists:
+                        # Sprawdź czy to nowy rekord amplitudy
+                        is_record = distance_from_center > self.amplitude_record
+                        if is_record:
+                            self.amplitude_record = distance_from_center
+                        
                         # Kolor flary zależy od pozycji (częstotliwości)
                         if is_vocal:
                             flare_color = (255, 100, 50)  # Wokal - czerwony/pomarańczowy
@@ -827,8 +871,8 @@ class VideoGenerator:
                             ratio = i / len(points)
                             flare_color = self._get_flare_color(ratio)
                         
-                        # Dodaj nową flarę
-                        self.active_flares.append((x, y, flare_color, self.current_time))
+                        # Dodaj nową flarę z informacją czy to rekord
+                        self.active_flares.append((x, y, flare_color, self.current_time, is_record))
     
     def _get_flare_color(self, ratio):
         """Pobierz kolor flary na podstawie pozycji (częstotliwości)"""
@@ -978,7 +1022,7 @@ def process_batch(batch_dir, args):
                 watermark_x=args.watermark_x,
                 watermark_y=args.watermark_y,
                 test_length=args.test_length,
-                add_flares=args.add_flares,
+                add_flares=not args.no_flares,
                 flare_duration=args.flare_duration
             )
             print(f"✅ Ukończono: {output_file}")
@@ -996,7 +1040,7 @@ def create_video_from_wav(input_wav, output_mp4, resolution="1920x1080",
                          left_color=(255, 255, 0), right_color=(0, 255, 0),
                          opacity=0.9, text=None, text_opacity=0.8,
                          watermark=None, watermark_x=10, watermark_y=10,
-                         test_length=None, add_flares=False, flare_duration=250):
+                         test_length=None, add_flares=True, flare_duration=500):
     """
     Główna funkcja konwertująca WAV do MP4 z wizualizacją
     
@@ -1224,10 +1268,10 @@ Przykłady użycia:
                        help='Pozycja Y znaku wodnego w %% od góry (domyślnie: 10)')
     parser.add_argument('--test-length', type=float, default=None,
                        help='Renderuj tylko X%% pliku dla szybkich testów (np. 10 = pierwsze 10%%)')
-    parser.add_argument('--add-flares', action='store_true',
-                       help='Dodaj kolorowe flary na szczytach amplitudy (różne kolory dla różnych częstotliwości)')
-    parser.add_argument('--flare-duration', type=int, default=250,
-                       help='Czas życia flary w milisekundach (domyślnie: 250ms)')
+    parser.add_argument('--no-flares', action='store_true',
+                       help='Wyłącz kolorowe flary na szczytach amplitudy (domyślnie: włączone)')
+    parser.add_argument('--flare-duration', type=int, default=500,
+                       help='Czas życia flary w milisekundach (domyślnie: 500ms)')
     parser.add_argument('--batch', action='store_true',
                        help='Tryb batch - przetwarzaj katalogi z podkatalogami zawierającymi WAV+obrazki')
     
@@ -1268,7 +1312,7 @@ Przykłady użycia:
                 watermark_x=args.watermark_x,
                 watermark_y=args.watermark_y,
                 test_length=args.test_length,
-                add_flares=args.add_flares,
+                add_flares=not args.no_flares,
                 flare_duration=args.flare_duration
             )
     except Exception as e:
