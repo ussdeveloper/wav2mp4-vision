@@ -75,3 +75,8 @@ ffmpeg2pass-0.log.mbtree
 
 # Temporary files directory
 tmp/
+
+# PyInstaller
+*.spec
+build/
+dist/
