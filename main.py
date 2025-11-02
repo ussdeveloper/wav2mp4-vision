@@ -262,42 +262,89 @@ class BackgroundManager:
         return current_img.copy()
     
     def _apply_ken_burns(self, t):
-        """Zastosuj płynny efekt Ken Burns (zoom do wypełnienia +10% offset, potem płynne przesuwanie)
-        Obraz jest w 2x rozdzielczości, więc cropujemy w 2x i skalujemy z powrotem"""
+        """Efekt lornetki - większy zoom z losowym ruchem, czasem szybki, czasem zatrzymany
+        Symulacja oglądania przez lornetkę z ręki - naturalne drżenie i przesuwanie"""
         if not hasattr(self, 'ken_burns_img'):
             return self.images[0].copy()
         
-        # Progress od 0 do 1 przez cały czas trwania (z easing dla płynności)
-        progress = t / self.duration if self.duration > 0 else 0
-        progress = np.clip(progress, 0, 1)
+        # Inicjalizacja parametrów ruchu (przy pierwszym wywołaniu)
+        if not hasattr(self, '_binocular_state'):
+            self._binocular_state = {
+                'target_x': 0.5,  # Cel ruchu X (0-1)
+                'target_y': 0.5,  # Cel ruchu Y (0-1)
+                'current_x': 0.5,  # Aktualna pozycja X
+                'current_y': 0.5,  # Aktualna pozycja Y
+                'next_change': 0,  # Czas następnej zmiany celu
+                'speed': 0.02,     # Prędkość ruchu (0.01 = wolno, 0.05 = szybko)
+                'pause_until': 0   # Pauza do czasu t
+            }
         
-        # Smooth easing function (ease-in-out) dla ultra płynnego ruchu
-        # Używamy sinusoidalnej krzywej dla naturalnego przyspieszenia/zwalniania
-        smooth_progress = (1 - np.cos(progress * np.pi)) / 2
+        state = self._binocular_state
+        
+        # Sprawdź czy czas na nowy cel
+        if t >= state['next_change']:
+            # Losowy nowy cel ruchu (pełny zakres 0-1)
+            state['target_x'] = np.random.uniform(0.0, 1.0)
+            state['target_y'] = np.random.uniform(0.0, 1.0)
+            
+            # Losowa prędkość (czasem szybko, czasem wolno)
+            # 60% szans na normalny ruch, 30% szybki, 10% bardzo szybki
+            rand = np.random.random()
+            if rand < 0.6:
+                state['speed'] = np.random.uniform(0.008, 0.015)  # Normalny
+            elif rand < 0.9:
+                state['speed'] = np.random.uniform(0.025, 0.045)  # Szybki
+            else:
+                state['speed'] = np.random.uniform(0.06, 0.10)    # Bardzo szybki
+            
+            # Losowy czas do następnej zmiany (2-8 sekund)
+            state['next_change'] = t + np.random.uniform(2.0, 8.0)
+            
+            # 20% szans na pauzę (zatrzymanie) na 1-3 sekundy
+            if np.random.random() < 0.2:
+                state['pause_until'] = t + np.random.uniform(1.0, 3.0)
+        
+        # Jeśli w pauzie - nie ruszaj się
+        if t < state['pause_until']:
+            # Tylko subtelne drżenie
+            pass
+        else:
+            # Płynne przesuwanie w kierunku celu
+            dx = state['target_x'] - state['current_x']
+            dy = state['target_y'] - state['current_y']
+            
+            # Ruch z easing
+            state['current_x'] += dx * state['speed']
+            state['current_y'] += dy * state['speed']
+        
+        # Dodaj subtelne drżenie ręki (zawsze aktywne)
+        shake_x = np.sin(t * 3.7) * 0.003 + np.sin(t * 5.3) * 0.002
+        shake_y = np.sin(t * 4.2) * 0.003 + np.sin(t * 6.1) * 0.002
+        
+        final_x = np.clip(state['current_x'] + shake_x, 0, 1)
+        final_y = np.clip(state['current_y'] + shake_y, 0, 1)
         
         # Wymiary obrazka w 2x rozdzielczości (już przeskalowanego do 2x * 110%)
         img_width = self.ken_burns_img.width
         img_height = self.ken_burns_img.height
         
-        # Rozmiary docelowe w 2x (bo obraz jest upscaled)
-        target_w = self.width * 2
-        target_h = self.height * 2
+        # WIĘKSZY ZOOM - crop do mniejszego obszaru (60% zamiast 100%)
+        # To da efekt lornetki z większym przybliżeniem
+        zoom_factor = 0.55  # 55% = mocniejszy zoom
+        target_w = int(self.width * 2 * zoom_factor)
+        target_h = int(self.height * 2 * zoom_factor)
         
-        # Maksymalny dostępny offset (10% z każdej strony w przestrzeni 2x)
+        # Maksymalny dostępny offset (cały dostępny zakres)
         max_offset_x = img_width - target_w
         max_offset_y = img_height - target_h
         
-        # Wolniejsza animacja z płynnym ruchem dzięki 2x upscale
-        # Używamy 40% dostępnego zakresu dla wolniejszego, płynnego ruchu
-        # Przy 1920x1080 * 2 = 3840x2160 i 10% offset -> max_offset ≈ 384px -> 40% z tego = ~154px całkowity zakres
-        # To da ~154 różnych pozycji pikseli = płynny ruch bez skoków!
-        # 480 klatek / 154px = ~3.1 klatki na pixel = wolny płynny ruch
-        offset_x = int(smooth_progress * max_offset_x * 0.40)
-        offset_y = int(smooth_progress * max_offset_y * 0.40)
+        # Oblicz offset na podstawie pozycji
+        offset_x = int(final_x * max_offset_x)
+        offset_y = int(final_y * max_offset_y)
         
         # Ogranicz do maksymalnego dostępnego offsetu (zabezpieczenie)
-        offset_x = min(offset_x, max_offset_x)
-        offset_y = min(offset_y, max_offset_y)
+        offset_x = max(0, min(offset_x, max_offset_x))
+        offset_y = max(0, min(offset_y, max_offset_y))
         
         # Wytnij fragment obrazka w 2x rozdzielczości z płynnym przesunięciem
         left = offset_x
@@ -880,14 +927,14 @@ class VideoGenerator:
             right_wave: Array z amplitudami prawego kanału
             vocal_wave: Array z amplitudami wokalu (opcjonalne)
         """
-        # Parametry
+        # Parametry - efekt jak na obrazku z mocnym glow
         center_y = self.height / 2
-        amplitude_scale = self.height * 0.35  # 35% wysokości dla amplitudy
-        line_width = 1  # Ultra cienka linia - neon
-        vocal_line_width = 1  # Wokal też 1px (neon)
-        # Gradientowy glow - mniejszy, bardziej naturalny (2 warstwy)
-        glow_widths = [5, 3]  # Mniejsze szerokości dla naturalności
-        glow_opacities = [0.08, 0.12]  # Delikatniejsze dla naturalności
+        amplitude_scale = self.height * 0.40  # Większa amplituda (40%)
+        line_width = 3  # Grubsza linia główna
+        vocal_line_width = 3  # Wokal też 3px
+        # Multi-layer gradientowy glow - mocny efekt rozproszenia
+        glow_widths = [25, 18, 12, 8, 5]  # 5 warstw od największej do najmniejszej
+        glow_opacities = [0.05, 0.08, 0.12, 0.18, 0.25]  # Progresywnie mocniejsze
         
         # Lewy kanał - żółty (na środku)
         points_left = []
@@ -930,7 +977,7 @@ class VideoGenerator:
             
             # Oblicz opacity dla starszych klatek (efekt zanikania)
             age_factor = (idx + 1) / len(self.wave_history)
-            trail_opacity = 0.4 * age_factor * 0.5  # Reverb z opacity 0.4
+            trail_opacity = 0.6 * age_factor * 0.5  # Mocniejszy reverb z opacity 0.6
             
             # Rysuj trailing lewego kanału z gradientowym glow
             if len(old_left) > 1:
