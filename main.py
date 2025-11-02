@@ -1553,24 +1553,48 @@ def create_video_from_wav(input_wav, output_mp4, resolution="1920x1080",
 def main():
     """Główna funkcja programu"""
     parser = argparse.ArgumentParser(
-        description='Konwertuj WAV do MP4 z wizualną wizualizacją audio',
+        prog='WAV2MP4-Vision',
+        description='''WAV2MP4 VISION v3.26 - Advanced Audio Visualizer
+        
+Konwerter WAV do MP4 z zaawansowaną wizualizacją:
+  • Neonowe waveformy 1px z gradientowym glow
+  • Auto-wykrywanie kolorów z obrazka tła (k-means)
+  • Animowane ripple na szczytach amplitudy
+  • Ken Burns effect (płynny zoom + pan w 2x upscale)
+  • Heat distortion overlay
+  • Separacja wokalu (200-5000Hz)
+        ''',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Przykłady użycia:
-  # Podstawowe z tekstem
-  python main.py song.wav output.mp4 --text "My Song Title"
+PRZYKŁADY:
+  Podstawowe:
+    wav2mp4.exe song.wav output.mp4
   
-  # Z tłem i znakiem wodnym
-  python main.py song.wav output.mp4 --background photo.jpg --watermark logo.png
+  Z automatycznym tłem (wykrywa obrazek w katalogu WAV):
+    wav2mp4.exe song.wav output.mp4
   
-  # Test pierwszych 10%% (szybkie sprawdzenie)
-  python main.py song.wav test.mp4 --test-length 10
+  Własne tło + tekst + watermark:
+    wav2mp4.exe song.wav out.mp4 --background cover.jpg --text "Song 2025" --watermark logo.png
   
-  # Pełna konfiguracja
-  python main.py song.wav output.mp4 --background ./images/ --text "Song 2025" --watermark logo.png --watermark-x 5 --watermark-y 5
+  4K render:
+    wav2mp4.exe song.wav out.mp4 --resolution 3840x2160 --fps 60
   
-  # Tryb batch
-  python main.py batch-folder dummy.mp4 --batch
+  Własne kolory:
+    wav2mp4.exe song.wav out.mp4 --left-color 255,0,255 --right-color 0,255,255
+  
+  Szybki test (2%% długości):
+    wav2mp4.exe song.wav test.mp4 --test-length 2
+  
+  Tryb batch:
+    wav2mp4.exe batch-folder dummy.mp4 --batch
+
+FUNKCJE:
+  • Auto-kolory: K-means clustering z obrazka tła (+50%% saturacji, +30%% brightness)
+  • Ken Burns: 2x upscale, 40%% range, ease-in-out, heat distortion
+  • Waveform: 1px linie, 750 punktów, reverb trail (5 frames)
+  • Ripple: Dopasowane do kolorów kanałów, detekcja rekordów co 3s
+  
+GitHub: https://github.com/ussdeveloper/wav2mp4-vision
         """
     )
     
