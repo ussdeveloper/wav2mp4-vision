@@ -80,3 +80,4 @@ tmp/
 *.spec
 build/
 dist/
+batch-example
